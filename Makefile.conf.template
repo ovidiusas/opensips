@@ -113,4 +113,7 @@ DEFS+= -DF_PARALLEL_MALLOC #Fast memory allocator with paralel buckets
 #DEFS+= -DFUZZ_BUILD #Add extra runtime checks to prevent false-positive crashes
 #DEFS+= -DPROFILING #Periodically sample each process' call stack, for profiling purposes
 
+DEFS+= -DDBG_DIALOG
+DEFS+= -DBACKTRACE_DBG
+
 PREFIX ?= /usr/local/
