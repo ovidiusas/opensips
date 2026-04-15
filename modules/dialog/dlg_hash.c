@@ -235,8 +235,10 @@ static inline void free_dlg_dlg(struct dlg_cell *dlg)
 
 #ifdef DBG_DIALOG
 	sh_log(dlg->hist, DLG_DESTROY, "ref %d", dlg->ref);
+	LM_INFO("DLG_DESTROY dlg=%p, hist=%p, state=%d, flags=0x%x, ref %d\n", dlg, dlg->hist, dlg->state, dlg->flags, dlg->ref);
 	if (dlg->hist) {
 		sh_unref(dlg->hist);
+		dlg->_hist = dlg->hist;
 		dlg->hist = NULL;
 	}
 #endif

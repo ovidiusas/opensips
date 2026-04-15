@@ -179,6 +179,7 @@ struct dlg_cell
 
 #ifdef DBG_DIALOG
 	struct struct_hist   *hist;
+	struct struct_hist   *_hist;
 #endif
 };
 
@@ -303,11 +304,11 @@ void destroy_dlg(struct dlg_cell *dlg);
 #define DBG_REF(dlg, cnt) \
 	sh_log((dlg)->hist, DLG_REF, "h=%d, state=%d, flags=0x%x, ref %d with +%d", \
 	       (dlg)->h_entry, (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt)); \
-	LM_INFO("state=%d, flags=0x%x, ref %d with +%d\n", (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
+	LM_INFO("dlg=%p, state=%d, flags=0x%x, ref %d with +%d\n", (dlg), (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
 #define DBG_UNREF(dlg, cnt) \
 	sh_log((dlg)->hist, DLG_UNREF, "h=%d, state=%d, flags=0x%x, unref %d with -%d", \
 	       (dlg)->h_entry, (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt)); \
-	LM_INFO("state=%d, flags=0x%x, unref %d with -%d", (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
+	LM_INFO("dlg=%p, state=%d, flags=0x%x, unref %d with -%d", (dlg), (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
 #define DBG_FLUSH(dlg) sh_flush((dlg)->hist)
 #else
 #define DBG_REF(dlg, cnt)
