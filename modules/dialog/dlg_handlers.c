@@ -215,6 +215,7 @@ static void tmcb_remove_cseq_map(struct cell* t, int type,
 {
 	struct dlg_leg_cseq_map *prev, *it, *map = *param->param;
 	struct dlg_cell *dlg = map->dlg;
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	LM_DBG("removing [%u]->[%u] from leg [%d]\n", map->msg, map->gen, map->leg);
 	dlg_lock_dlg(dlg);
 	for (prev = NULL, it = dlg->legs[map->leg].cseq_maps; it; it = it->next) {
@@ -290,6 +291,7 @@ static void dlg_leg_push_cseq_map(struct dlg_cell *dlg, struct cell *t, unsigned
 	map->msg = msg_cseq;
 	map->gen = gen_cseq;
 	LM_DBG("storing cseq [%u]->[%u] for leg [%d]\n", map->msg, map->gen, leg);
+	LM_INFO("register_tmcb(0x%x, tmcb_remove_cseq_map, NULL)\n",TMCB_TRANS_DELETED);
 	if (d_tmb.register_tmcb(NULL, t, TMCB_TRANS_DELETED, tmcb_remove_cseq_map, map, NULL) < 0) {
 		LM_ERR("failed to register TMCB free func\n");
 		shm_free(map);
@@ -632,6 +634,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 	str *req_out_buff;
 
 	dlg = (struct dlg_cell *)(*param->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	if (shutdown_done || dlg==0)
 		return;
 
@@ -991,6 +994,7 @@ static void dlg_update_callee_sdp(struct cell* t, int type,
 	rpl = ps->rpl;
 	statuscode = ps->code;
 	dlg = *(ps->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 
 	if(rpl==NULL || rpl==FAKED_REPLY) {
 		/* we only care about actual replayed replies */
@@ -1024,6 +1028,7 @@ static void dlg_update_caller_sdp(struct cell* t, int type,
 	rpl = ps->rpl;
 	statuscode = ps->code;
 	dlg = *(ps->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 
 	if(rpl==NULL || rpl==FAKED_REPLY) {
 		/* we only care about actual replayed replies */
@@ -1058,6 +1063,7 @@ static void dlg_update_caller_rpl_contact(struct cell* t, int type,
 	rpl = ps->rpl;
 	statuscode = ps->code;
 	dlg = *(ps->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 
 	if(rpl==NULL || rpl==FAKED_REPLY) {
 		/* we only care about actual replayed replies */
@@ -1094,6 +1100,7 @@ static void dlg_update_callee_rpl_contact(struct cell* t, int type,
 	rpl = ps->rpl;
 	statuscode = ps->code;
 	dlg = *(ps->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 
 	if(rpl==NULL || rpl==FAKED_REPLY) {
 		/* we only care about actual replayed replies */
@@ -1117,6 +1124,7 @@ static void dlg_seq_up_onreply_mod_cseq(struct cell* t, int type,
 	struct dlg_cell *dlg;
 
 	dlg = ((dlg_cseq_wrapper*)*param->param)->dlg;
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	if (shutdown_done || dlg==0)
 		return;
 
@@ -1142,6 +1150,7 @@ static void dlg_seq_up_onreply(struct cell* t, int type,
 	struct dlg_cell *dlg;
 
 	dlg = (struct dlg_cell *)(*param->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	if (shutdown_done || dlg==0)
 		return;
 
@@ -1161,6 +1170,7 @@ static void dlg_seq_down_onreply_mod_cseq(struct cell* t, int type,
 	struct dlg_cell *dlg;
 
 	dlg = ((dlg_cseq_wrapper*)*param->param)->dlg;
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	if (shutdown_done || dlg==0)
 		return;
 
@@ -1182,6 +1192,7 @@ static void dlg_seq_down_onreply_mod_cseq(struct cell* t, int type,
 
 static void free_final_cseq(void *cseq)
 {
+	LM_DBG("\n");
 	shm_free(cseq);
 }
 
@@ -1190,6 +1201,7 @@ static void fix_final_cseq(struct cell *t,int type,
 {
 	str cseq;
 
+	LM_INFO("tmcb type 0x%x\n", type);
 	cseq.s = (char *)(*param->param);
 	cseq.len = strlen(cseq.s);
 
@@ -1206,6 +1218,7 @@ static void dlg_seq_down_onreply(struct cell* t, int type,
 	struct dlg_cell *dlg;
 
 	dlg = (struct dlg_cell *)(*param->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	if (shutdown_done || dlg==0)
 		return;
 
@@ -1228,6 +1241,7 @@ inline static int get_dlg_timeout(struct sip_msg *msg)
 
 static void unreference_dialog_cseq(void *cseq_wrap)
 {
+	LM_DBG("\n");
 	/* if the dialog table is gone, it means the system is shutting down.*/
 	if (!d_table)
 		return;
@@ -1239,6 +1253,7 @@ static void unreference_dialog_cseq(void *cseq_wrap)
 
 void unreference_dialog(void *dialog)
 {
+	LM_DBG("\n");
 	/* if the dialog table is gone, it means the system is shutting down.*/
 	unref_dlg_destroy_safe((struct dlg_cell*)dialog, 1);
 }
@@ -1248,6 +1263,7 @@ static void unreference_dialog_create(void *dialog)
 {
 	struct tmcb_params params;
 
+	LM_DBG("\n");
 	memset(&params, 0, sizeof(struct tmcb_params));
 	params.param = (void*)&dialog;
 	/* just a wapper */
@@ -1258,6 +1274,7 @@ static void unreference_dialog_create(void *dialog)
 static void tmcb_unreference_dialog(struct cell* t, int type,
 													struct tmcb_params *param)
 {
+	LM_INFO("tmcb type 0x%x\n", type);
 	unref_dlg_destroy_safe((struct dlg_cell*)*param->param, 1);
 }
 
@@ -1268,6 +1285,7 @@ static void dlg_onreply_out(struct cell* t, int type, struct tmcb_params *ps)
 	str buffer,contact;
 
 	dlg = (struct dlg_cell *)(*ps->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 
 	rpl = ps->rpl;
 	if(rpl==NULL || rpl==FAKED_REPLY) {
@@ -1328,6 +1346,7 @@ static void dlg_caller_reinv_onreq_out(struct cell* t, int type, struct tmcb_par
 {
 	struct dlg_cell *dlg = (struct dlg_cell *)(*ps->param);
 
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	dlg_update_req_info((str *)ps->extra1, dlg, DLG_CALLER_LEG, ps->req, t);
 }
 
@@ -1335,6 +1354,7 @@ static void dlg_callee_reinv_onreq_out(struct cell* t, int type, struct tmcb_par
 {
 	struct dlg_cell *dlg = (struct dlg_cell *)(*ps->param);
 
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	dlg_update_req_info((str *)ps->extra1, dlg, callee_idx(dlg), ps->req, t);
 }
 
@@ -1345,6 +1365,7 @@ static void dlg_set_tm_dialog_ctx(struct dlg_cell *dlg, struct cell *t)
 	if (t->dialog_ctx)
 		return;
 
+	LM_INFO("register_tmcb(0x%x, tmcb_unreference_dialog, NULL)\n",TMCB_TRANS_DELETED);
 	if ( d_tmb.register_tmcb( NULL, t, TMCB_TRANS_DELETED,
 			tmcb_unreference_dialog, (void*)dlg, NULL)<0){
 		LM_ERR("failed to register TMCB\n");
@@ -1363,6 +1384,7 @@ void dlg_onreq(struct cell* t, int type, struct tmcb_params *param)
 
 	/* is the dialog already created? */
 	if (current_processing_ctx && (dlg=ctx_dialog_get())!=NULL ) {
+		LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 		/* new, un-initialized dialog ? */
 		if ( dlg->flags & DLG_FLAG_ISINIT ) {
 			/* fully init dialog -> check if attached to the transaction */
@@ -1398,6 +1420,7 @@ static void dlg_onreq_out(struct cell* t, int type, struct tmcb_params *ps)
 	buffer.len = ((str*)ps->extra1)->len;
 
 	dlg = (struct dlg_cell *)(*ps->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 
 	msg=pkg_malloc(sizeof(struct sip_msg));
         if (msg==0) {
@@ -1603,6 +1626,7 @@ static void dlg_update_contact_req(struct cell* t, int type, struct tmcb_params 
 	struct dlg_cell *dlg;
 
 	dlg = (struct dlg_cell *)(*ps->param);
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
 	msg = ps->req;
 
 	if (!dlg || !msg) {
@@ -1623,6 +1647,7 @@ static void _dlg_setup_reinvite_callbacks(struct cell *t, struct sip_msg *req,
 {
 	if (!(dlg->flags & DLG_FLAG_REINVITE_PING_ENGAGED_REQ)) {
 		/* register out callback in order to save SDP */
+		LM_INFO("register_tmcb(0x%x, dlg_onreq_out, NULL)\n",TMCB_REQUEST_BUILT);
 		if (d_tmb.register_tmcb(req, 0, TMCB_REQUEST_BUILT,
 				dlg_onreq_out, (void *)dlg, 0) <= 0)
 			LM_ERR("can't register trace_onreq_out\n");
@@ -1631,6 +1656,7 @@ static void _dlg_setup_reinvite_callbacks(struct cell *t, struct sip_msg *req,
 	}
 
 	if (t && (!(dlg->flags & DLG_FLAG_REINVITE_PING_ENGAGED_REPL))) {
+		LM_INFO("register_tmcb(0x%x, dlg_onreply_out, NULL)\n",TMCB_RESPONSE_OUT);
 		if (d_tmb.register_tmcb(0, t, TMCB_RESPONSE_OUT,
 				dlg_onreply_out, (void *)dlg, 0) <= 0)
 			LM_ERR("can't register trace_onreply_out\n");
@@ -1708,9 +1734,11 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 	ctx_dialog_set(dlg);
 	ctx_lastdstleg_set(DLG_FIRST_CALLEE_LEG);
 
+	LM_DBG("extra ref for the callback and current dlg hook\n");
 	extra_ref=2; /* extra ref for the callback and current dlg hook */
 	if (dlg_db_mode == DB_MODE_DELAYED)
 		extra_ref++; /* extra ref for the timer to delete the dialog */
+	LM_DBG("extra_ref\n");
 	link_dlg( dlg , extra_ref);
 
 	if ( seq_match_mode!=SEQ_MATCH_NO_ID && has_rr() &&
@@ -1725,6 +1753,7 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 	if (dialog_repl_cluster)
 		types |= TMCB_RESPONSE_OUT;
 
+	LM_INFO("register_tmcb(0x%x, dlg_onreply, unreference_dialog_create)\n",types);
 	if ( d_tmb.register_tmcb( req, t,types,dlg_onreply,
 	(void*)dlg, unreference_dialog_create)<0 ) {
 		LM_ERR("failed to register TMCB\n");
@@ -1747,6 +1776,7 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 
 	_dlg_setup_reinvite_callbacks(t, req, dlg);
 
+	LM_INFO("register_tmcb(0x%x, dlg_update_contact_req, NULL)\n",TMCB_REQUEST_FWDED);
 	if(d_tmb.register_tmcb(req, 0, TMCB_REQUEST_FWDED, dlg_update_contact_req,
 			(void *)dlg, 0) <=0) {
 		LM_ERR("can't register dlg_update_contact\n");
@@ -1758,7 +1788,11 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 	return 0;
 error:
 	unref_dlg(dlg,extra_ref);
-	dialog_cleanup( req, NULL);
+	/* dialog_cleanup( req, NULL); */
+	if (current_processing_ctx && ctx_dialog_get()) {
+		unref_dlg( ctx_dialog_get(), 1);
+		ctx_dialog_set(NULL);
+	}
 	if_update_stat(dlg_enable_stats, failed_dlgs, 1);
 	return -1;
 }
@@ -2062,6 +2096,7 @@ void dlg_onroute(struct sip_msg* req, str *route_params, void *param)
 			memcpy(final_cseq,msg_cseq->s,msg_cseq->len);
 			final_cseq[msg_cseq->len] = 0;
 
+			LM_INFO("register_tmcb(0x%x, fix_final_cseq, free_final_cseq)\n",TMCB_REQUEST_FWDED);
 			if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 			fix_final_cseq,
 			(void*)final_cseq, free_final_cseq)<0 ) {
@@ -2118,6 +2153,7 @@ void dlg_onroute(struct sip_msg* req, str *route_params, void *param)
 			memcpy(final_cseq,msg_cseq->s,msg_cseq->len);
 			final_cseq[msg_cseq->len] = 0;
 
+			LM_INFO("register_tmcb(0x%x, fix_final_cseq, free_final_cseq)\n",TMCB_REQUEST_FWDED);
 			if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 			fix_final_cseq,
 			(void*)final_cseq, free_final_cseq)<0 ) {
@@ -2219,6 +2255,8 @@ after_unlock5:
 
 				/* we need to update the SDP for this leg
 				and involve TM to update the SDP for the other side as well */
+				LM_INFO("register_tmcb(0x%x, %s, NULL)\n",TMCB_REQUEST_BUILT,
+					dir==DLG_DIR_UPSTREAM?"dlg_callee_reinv_onreq_out":"dlg_caller_reinv_onreq_out");
 				if(d_tmb.register_tmcb( req, 0, TMCB_REQUEST_BUILT,
 				(dir==DLG_DIR_UPSTREAM)?dlg_callee_reinv_onreq_out:dlg_caller_reinv_onreq_out,
 				(void *)dlg, 0) <=0) {
@@ -2228,6 +2266,8 @@ after_unlock5:
 
 				if (ok) {
 					ref_dlg( dlg , 1);
+					LM_INFO("register_tmcb(0x%x, %s, unreference_dialog)\n",TMCB_RESPONSE_OUT,
+						dir==DLG_DIR_UPSTREAM?"dlg_update_caller_sdp":"dlg_update_callee_sdp");
 					if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_OUT,
 					(dir==DLG_DIR_UPSTREAM)?dlg_update_caller_sdp:dlg_update_callee_sdp,
 					(void*)dlg, unreference_dialog)<0 ) {
@@ -2235,6 +2275,8 @@ after_unlock5:
 							unref_dlg( dlg , 1);
 					} else {
 						ref_dlg( dlg , 1);
+						LM_INFO("register_tmcb(0x%x, %s, unreference_dialog)\n",TMCB_RESPONSE_FWDED,
+							dir==DLG_DIR_UPSTREAM?"dlg_update_caller_rpl_contact":"dlg_update_callee_rpl_contact");
 						if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 						(dir==DLG_DIR_UPSTREAM)?dlg_update_caller_rpl_contact:
 						dlg_update_callee_rpl_contact, (void*)dlg, unreference_dialog)<0 ) {
@@ -2353,6 +2395,8 @@ after_unlock5:
 				wrap->cseq.len = msg_cseq->len;
 				memcpy(wrap->cseq.s,msg_cseq->s,msg_cseq->len);
 
+				LM_INFO("register_tmcb(0x%x, %s, unreference_dialog_cseq)\n",TMCB_RESPONSE_FWDED,
+					dir==DLG_DIR_UPSTREAM?"dlg_seq_down_onreply_mod_cseq":"dlg_seq_up_onreply_mod_cseq");
 				if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 				(dir==DLG_DIR_UPSTREAM)?dlg_seq_down_onreply_mod_cseq:dlg_seq_up_onreply_mod_cseq,
 				(void*)wrap, unreference_dialog_cseq)<0 ) {
@@ -2369,6 +2413,8 @@ after_unlock5:
 			if (dlg->cbs.types & DLGCB_RESPONSE_WITHIN)
 			{
 				ref_dlg( dlg , 1);
+				LM_INFO("register_tmcb(0x%x, %s, unreference_dialog)\n",TMCB_RESPONSE_FWDED,
+					dir==DLG_DIR_UPSTREAM?"dlg_seq_down_onreply":"dlg_seq_up_onreply");
 				if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 				(dir==DLG_DIR_UPSTREAM)?dlg_seq_down_onreply:dlg_seq_up_onreply,
 				(void*)dlg, unreference_dialog)<0 ) {
