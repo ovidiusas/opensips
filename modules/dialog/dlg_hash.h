@@ -442,6 +442,7 @@ void link_dlg(struct dlg_cell *dlg, int extra_refs);
 
 #define _link_dlg_unsafe(d_entry, dlg) \
 	do { \
+		LM_INFO("linking into hash list dlg=%p\n", dlg); \
 		if (!d_entry->first) { \
 			d_entry->first = d_entry->last = dlg; \
 		} else { \

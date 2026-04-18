@@ -659,6 +659,7 @@ int dlg_replicated_delete(bin_packet_t *packet)
 			dlg->legs[callee_idx(dlg)].tag.len,
 			ZSW(dlg->legs[callee_idx(dlg)].tag.s));
 	} else {
+		LM_INFO("remove_dlg_timer() dlg=%p\n", dlg);
 		/* dialog successfully removed from timer -> unref */
 		unref++;
 	}
@@ -1235,9 +1236,11 @@ struct dlg_cell *drop_dlg(struct dlg_cell *dlg, int i)
 			dlg->callid.len, dlg->callid.s,
 			dlg_leg_print_info(dlg, DLG_CALLER_LEG, tag),
 			dlg_leg_print_info(dlg, callee_idx(dlg), tag));
-	} else if (ret == 0)
+	} else if (ret == 0) {
+		LM_INFO("remove_dlg_timer() dlg=%p\n", dlg);
 		/* successfully removed from timer list */
 		unref++;
+	}
 
 	if (dlg_db_mode != DB_MODE_NONE) {
 		if (dlg_db_mode == DB_MODE_DELAYED &&

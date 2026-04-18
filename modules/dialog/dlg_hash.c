@@ -269,6 +269,8 @@ void destroy_dlg(struct dlg_cell *dlg)
 			dlg->callid.len, dlg->callid.s,
 			dlg_leg_print_info( dlg, DLG_CALLER_LEG, tag),
 			dlg_leg_print_info( dlg, callee_idx(dlg), tag));
+	} else {
+		LM_INFO("remove_dlg_timer() dlg=%p\n", dlg);
 	}
 
 	run_dlg_callbacks(DLGCB_DESTROY , dlg, 0, DLG_DIR_NONE, -1, NULL, 0, 1);
@@ -1014,6 +1016,7 @@ void link_dlg(struct dlg_cell *dlg, int extra_refs)
 void unlink_unsafe_dlg(struct dlg_entry *d_entry,
 													struct dlg_cell *dlg)
 {
+	LM_INFO("unlinking from hash list dlg=%p\n", dlg);
 	if (dlg->next)
 		dlg->next->prev = dlg->prev;
 	else
@@ -1192,6 +1195,7 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 {
 	struct dlg_entry *d_entry;
 
+	LM_INFO("dlg=%p\n", dlg);
 	d_entry = &(d_table->entries[dlg->h_entry]);
 	*unref = 0;
 
@@ -1349,7 +1353,7 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 		replicate_dialog_deleted(dlg);
 
 
-	LM_DBG("dialog %p changed from state %d to "
+	LM_INFO("dialog %p changed from state %d to "
 		"state %d, due event %d\n",dlg,*old_state,*new_state,event);
 }
 

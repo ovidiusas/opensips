@@ -308,6 +308,7 @@ int insert_dlg_timer(struct dlg_tl *tl, int interval)
 
 int insert_attempt_dlg_del_timer(struct dlg_tl *tl, int interval)
 {
+	LM_INFO("linking into del timer list\n");
 	lock_get( ddel_timer->lock);
 
 	if (tl->prev==NULL) {
@@ -909,6 +910,7 @@ static int dlg_ping_terminate(struct dlg_cell *dlg)
 
 	if (new_state != DLG_STATE_DELETED || old_state == DLG_STATE_DELETED) {
 		/* Lost the race -- a BYE handler already owns this dialog */
+		LM_INFO("Lost the race -- a BYE handler already owns this dialog dlg=%p\n",dlg);
 		unref_dlg(dlg, 1);
 		return 0;
 	}
@@ -937,6 +939,7 @@ static int dlg_ping_terminate(struct dlg_cell *dlg)
 	dlg_end_dlg(dlg, NULL, 1);
 
 	/* ping list ref (1) + hash ref from next_state_dlg (unref) */
+	LM_INFO("ping list ref (1) + hash ref from next_state_dlg dlg=%p\n",dlg);
 	unref_dlg(dlg, unref + 1);
 
 	if_update_stat(dlg_enable_stats, active_dlgs, -1);
@@ -980,6 +983,7 @@ void dlg_options_routine(unsigned int ticks , void * attr)
 		dlg = it->dlg;
 		LM_DBG("dialog %p-%.*s has terminated\n",dlg,dlg->callid.len,dlg->callid.s);
 		curr = it->next;
+		LM_INFO("ping timer list dlg=%p\n",dlg);
 		/* if marked as to be deleted, we let it go
 		 * for the ping timer list as well */
 		unref_dlg(dlg,1);
@@ -1024,6 +1028,7 @@ void dlg_options_routine(unsigned int ticks , void * attr)
 
 			if (dlg->flags & DLG_FLAG_PING_CALLEE &&
 			        dlg->legs[callee_idx(dlg)].reply_received == DLG_PING_SUCCESS) {
+				LM_INFO("DLG_PING_SUCCESS dlg=%p\n",dlg);
 				ref_dlg(dlg,1);
 				if (send_leg_msg(dlg,&options_str,DLG_CALLER_LEG,
 				callee_idx(dlg),0,0,reply_from_callee,dlg,unref_dlg_cb,
@@ -1082,7 +1087,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 	it = to_be_deleted;
 	while (it) {
 		dlg = it->dlg;
-		LM_DBG("dialog %p-%.*s has terminated\n",dlg,dlg->callid.len,dlg->callid.s);
+		LM_INFO("dialog %p-%.*s has terminated\n",dlg,dlg->callid.len,dlg->callid.s);
 		curr = it->next;
 		/* if marked as to be deleted, we let it go
 		 * for the ping timer list as well */
@@ -1128,6 +1133,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 						&dlg->legs[DLG_CALLER_LEG].out_sdp:
 						&dlg->legs[callee_idx(dlg)].in_sdp);
 				
+				LM_INFO("DLG_PING_SUCCESS dlg=%p\n",dlg);
 				ref_dlg(dlg,1);
 				if (send_leg_msg(dlg,&invite_str,callee_idx(dlg),
 				DLG_CALLER_LEG,&extra_headers,sdp,
@@ -1153,6 +1159,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 						&dlg->legs[callee_idx(dlg)].out_sdp:
 						&dlg->legs[DLG_CALLER_LEG].in_sdp);
 
+				LM_INFO("DLG_PING_SUCCESS dlg=%p\n",dlg);
 				ref_dlg(dlg,1);
 				if (send_leg_msg(dlg,&invite_str,DLG_CALLER_LEG, callee_idx(dlg),
 				&extra_headers,sdp,reinvite_reply_from_callee, dlg,unref_dlg_cb,
