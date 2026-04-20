@@ -36,6 +36,10 @@ typedef struct dlg_cell *(*get_dlg_by_did_f) (str *, int);
 typedef struct dlg_cell *(*get_dlg_by_ids_f) (unsigned int, unsigned int, int);
 typedef int (*match_dialog_f) (struct sip_msg *msg, int _seq_match_mode);
 typedef int (*get_direction_f) (void);
+typedef void (*ref_dlg_reason_f)(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags);
+typedef void (*unref_dlg_reason_f)(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags);
 
 struct dlg_binds {
 	register_dlgcb_f     register_dlgcb;
@@ -80,6 +84,9 @@ struct dlg_binds {
 	dlg_ctx_get_int_f dlg_ctx_get_int;
 	dlg_ctx_get_str_f dlg_ctx_get_str;
 	dlg_ctx_get_ptr_f dlg_ctx_get_ptr;
+
+	ref_dlg_reason_f     dlg_ref_reason;
+	unref_dlg_reason_f   dlg_unref_reason;
 };
 
 

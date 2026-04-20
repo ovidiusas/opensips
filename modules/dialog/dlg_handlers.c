@@ -234,7 +234,7 @@ static void tmcb_remove_cseq_map(struct cell* t, int type,
 	}
 	dlg_unlock_dlg(dlg);
 	LM_INFO("dlg=%p\n", dlg);
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_CSEQ_MAP);
 }
 
 static void dlg_leg_push_cseq_map(struct dlg_cell *dlg, struct cell *t, unsigned int leg,
@@ -302,7 +302,7 @@ static void dlg_leg_push_cseq_map(struct dlg_cell *dlg, struct cell *t, unsigned
 	 * re-INVITE is authenticated */
 	dlg_lock_dlg(dlg);
 	LM_INFO("dlg=%p\n", dlg);
-	ref_dlg_unsafe(dlg, 1);
+	ref_dlg_unsafe_reason(dlg, 1, DLG_REF_CSEQ_MAP);
 	map->next = dlg->legs[leg].cseq_maps;
 	dlg->legs[leg].cseq_maps = map;
 	dlg_unlock_dlg(dlg);
@@ -631,6 +631,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 	int old_state;
 	int unref;
 	int event;
+	dlg_ref_flags_t unref_flags;
 	str mangled_from = {0,0};
 	str mangled_to = {0,0};
 	str *req_out_buff;
@@ -700,7 +701,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 			case 1:
 				LM_INFO("update_dlg_timer() dlg=%p", dlg);
 				/* dlg inserted in timer list with new expire (reference it)*/
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_TIMER);
 				dlg->lifetime_dirty = 0;
 			}
 		} else {
@@ -710,7 +711,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 		if (current_processing_ctx && ctx_dialog_get()==NULL) {
 			LM_INFO("reference and attached to script dlg=%p\n", dlg);
 			/* reference and attached to script */
-			ref_dlg(dlg,1);
+			ref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			ctx_dialog_set(t->dialog_ctx);
 		}
 		return;
@@ -736,7 +737,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 	}
 
 	next_state_dlg(dlg, event, DLG_DIR_UPSTREAM, &old_state, &new_state,
-	               &unref, DLG_CALLER_LEG, 1);
+	               &unref, &unref_flags, DLG_CALLER_LEG, 1);
 
 	if (new_state==DLG_STATE_EARLY && old_state!=DLG_STATE_EARLY) {
 		run_dlg_callbacks(DLGCB_EARLY, dlg, rpl, DLG_DIR_UPSTREAM,
@@ -781,7 +782,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 		} else {
 			LM_INFO("insert_dlg_timer() dlg=%p\n", dlg);
 			/* reference dialog as kept in timer list */
-			ref_dlg(dlg,1);
+			ref_dlg_reason(dlg, 1, DLG_REF_TIMER);
 		}
 
 		/* save the settings to the database,
@@ -825,7 +826,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 		/* do unref */
 		if (unref) {
 			LM_INFO("dlg=%p\n", dlg);
-			unref_dlg(dlg,unref);
+			unref_dlg_reason(dlg, unref, unref_flags);
 		}
 		if (old_state==DLG_STATE_EARLY)
 			if_update_stat(dlg_enable_stats, early_dlgs, -1);
@@ -837,7 +838,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 	   requests to unref the dialog */
 	if (unref) {
 		LM_INFO("dlg=%p\n", dlg);
-		unref_dlg(dlg,unref);
+		unref_dlg_reason(dlg, unref, unref_flags);
 	}
 
 	return;
@@ -1257,7 +1258,7 @@ static void unreference_dialog_cseq(void *cseq_wrap)
 
 	dlg_cseq_wrapper *wrap = (dlg_cseq_wrapper *)cseq_wrap;
 	LM_INFO("dlg=%p\n", wrap->dlg);
-	unref_dlg(wrap->dlg, 1);
+	unref_dlg_reason(wrap->dlg, 1, DLG_REF_CSEQ_MAP);
 	shm_free(wrap);
 }
 
@@ -1265,9 +1266,30 @@ void unreference_dialog(void *dialog)
 {
 	LM_DBG("\n");
 	/* if the dialog table is gone, it means the system is shutting down.*/
-	unref_dlg_destroy_safe((struct dlg_cell*)dialog, 1);
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TM_CREATE_CB);
 }
 
+static void unreference_dialog_sdp(void *dialog)
+{
+	LM_DBG("\n");
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TM_SDP_CB);
+}
+
+static void unreference_dialog_contact(void *dialog)
+{
+	LM_DBG("\n");
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TM_CONTACT_CB);
+}
+
+static void unreference_dialog_response_within(void *dialog)
+{
+	LM_DBG("\n");
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TM_RESPONSE_WITHIN_CB);
+}
 
 static void unreference_dialog_create(void *dialog)
 {
@@ -1280,12 +1302,14 @@ static void unreference_dialog_create(void *dialog)
 	dlg_onreply( 0, TMCB_TRANS_DELETED, &params);
 }
 
-
 static void tmcb_unreference_dialog(struct cell* t, int type,
 													struct tmcb_params *param)
 {
-	LM_INFO("tmcb type 0x%x dlg=%p\n", type, *param->param);
-	unref_dlg_destroy_safe((struct dlg_cell*)*param->param, 1);
+	struct dlg_cell *dlg;
+
+	dlg = (struct dlg_cell *)*param->param;
+	LM_INFO("tmcb type 0x%x dlg=%p\n", type, dlg);
+	unref_dlg_destroy_safe_reason(dlg, 1, DLG_REF_TRANSACTION_CTX);
 }
 
 static void dlg_onreply_out(struct cell* t, int type, struct tmcb_params *ps)
@@ -1385,7 +1409,7 @@ static void dlg_set_tm_dialog_ctx(struct dlg_cell *dlg, struct cell *t)
 	t->dialog_ctx = (void*)dlg;
 	/* and keep a reference on it */
 	LM_INFO("TMCB_TRANS_DELETED ref dlg=%p\n",dlg);
-	ref_dlg( dlg , 1);
+	ref_dlg_reason(dlg, 1, DLG_REF_TRANSACTION_CTX);
 }
 
 
@@ -1681,6 +1705,7 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 	struct dlg_cell *dlg;
 	str s;
 	int extra_ref,types;
+	dlg_ref_flags_t extra_ref_flags;
 
 	/* module is strictly designed for dialog calls */
 	if (req->first_line.u.request.method_value!=METHOD_INVITE)
@@ -1747,10 +1772,13 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 
 	LM_DBG("extra ref for the callback and current dlg hook\n");
 	extra_ref=2; /* extra ref for the callback and current dlg hook */
-	if (dlg_db_mode == DB_MODE_DELAYED)
+	extra_ref_flags = DLG_REF_TM_CREATE_CB | DLG_REF_SCRIPT_CTX;
+	if (dlg_db_mode == DB_MODE_DELAYED) {
 		extra_ref++; /* extra ref for the timer to delete the dialog */
+		extra_ref_flags |= DLG_REF_DB_TIMER;
+	}
 	LM_DBG("extra_ref\n");
-	link_dlg( dlg , extra_ref);
+	link_dlg_reason(dlg, extra_ref, extra_ref_flags);
 
 	if ( seq_match_mode!=SEQ_MATCH_NO_ID && has_rr() &&
 		add_dlg_rr_param( req, dlg)<0 ) {
@@ -1799,10 +1827,10 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 	return 0;
 error:
 	LM_ERR("dialog_cleanup dlg=%p\n",dlg);
-	unref_dlg(dlg,extra_ref);
+	unref_dlg_reason(dlg, extra_ref, extra_ref_flags);
 	/* dialog_cleanup( req, NULL); */
 	if (current_processing_ctx && ctx_dialog_get()) {
-		unref_dlg( ctx_dialog_get(), 1);
+		unref_dlg_ctx(ctx_dialog_get());
 		ctx_dialog_set(NULL);
 	}
 	if_update_stat(dlg_enable_stats, failed_dlgs, 1);
@@ -1932,6 +1960,7 @@ void dlg_onroute(struct sip_msg* req, str *route_params, void *param)
 	int old_state;
 	int unref;
 	int event;
+	dlg_ref_flags_t unref_flags;
 	unsigned int update_val;
 	unsigned int dir,dst_leg,src_leg;
 	int ret = 0,ok = 1;
@@ -1992,7 +2021,7 @@ void dlg_onroute(struct sip_msg* req, str *route_params, void *param)
 				/* lookup_dlg has incremented the ref count by 1 */
 				if (pre_match_parse( req, &callid, &ftag, &ttag)<0) {
 					LM_INFO("lookup_dlg dlg=%p\n",dlg);
-					unref_dlg(dlg, 1);
+					unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 					return;
 				}
 				if (match_dialog(dlg,&callid,&ftag,&ttag,&dir, &dst_leg )==0){
@@ -2020,7 +2049,7 @@ void dlg_onroute(struct sip_msg* req, str *route_params, void *param)
 							dlg->legs[callee_idx(dlg)].tag.len);
 					}
 					LM_INFO("dlg=%p\n", dlg);
-					unref_dlg(dlg, 1);
+					unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 					/* potentially fall through to SIP-wise dialog matching,
 					   depending on seq_match_mode */
 					dlg = NULL;
@@ -2065,7 +2094,8 @@ void dlg_onroute(struct sip_msg* req, str *route_params, void *param)
 			event = DLG_EVENT_REQ;
 	}
 
-	next_state_dlg(dlg, event, dir, &old_state, &new_state, &unref, dst_leg, 1);
+	next_state_dlg(dlg, event, dir, &old_state, &new_state, &unref,
+		&unref_flags, dst_leg, 1);
 
 	/* set current dialog - it will keep a ref! */
 	ctx_dialog_set(dlg);
@@ -2203,6 +2233,7 @@ after_unlock5:
 			/* dialog successfully removed from timer -> unref */
 			LM_INFO("remove_dlg_timer() dlg=%p\n", dlg);
 			unref++;
+			unref_flags |= DLG_REF_TIMER;
 		}
 
 		/* dialog terminated (BYE) */
@@ -2214,7 +2245,7 @@ after_unlock5:
 
 		/* destroy dialog */
 		LM_INFO("destroy dlg=%p\n", dlg);
-		unref_dlg(dlg, unref);
+		unref_dlg_reason(dlg, unref, unref_flags);
 
 		if_update_stat( dlg_enable_stats, active_dlgs, -1);
 		return;
@@ -2245,7 +2276,7 @@ after_unlock5:
 			case 1:
 				LM_INFO("update_dlg_timer() dlg=%p\n",dlg);
 				/* dlg inserted in timer list with new expire (reference it)*/
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_TIMER);
 				dlg->lifetime_dirty = 0;
 			}
 		}
@@ -2283,24 +2314,24 @@ after_unlock5:
 
 				if (ok) {
 					LM_INFO("dlg=%p\n",dlg);
-					ref_dlg( dlg , 1);
-					LM_INFO("register_tmcb(0x%x, %s, unreference_dialog) dlg=%p\n",TMCB_RESPONSE_OUT,
+					ref_dlg_reason(dlg, 1, DLG_REF_TM_SDP_CB);
+					LM_INFO("register_tmcb(0x%x, %s, unreference_dialog_sdp) dlg=%p\n",TMCB_RESPONSE_OUT,
 						dir==DLG_DIR_UPSTREAM?"dlg_update_caller_sdp":"dlg_update_callee_sdp",dlg);
 					if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_OUT,
 					(dir==DLG_DIR_UPSTREAM)?dlg_update_caller_sdp:dlg_update_callee_sdp,
-					(void*)dlg, unreference_dialog)<0 ) {
+					(void*)dlg, unreference_dialog_sdp)<0 ) {
 						LM_ERR("failed to register TMCB (2)\n");
-						unref_dlg( dlg , 1);
+						unref_dlg_reason(dlg, 1, DLG_REF_TM_SDP_CB);
 					} else {
 						LM_INFO("dlg=%p\n",dlg);
-						ref_dlg( dlg , 1);
-						LM_INFO("register_tmcb(0x%x, %s, unreference_dialog) dlg=%p\n",TMCB_RESPONSE_FWDED,
+						ref_dlg_reason(dlg, 1, DLG_REF_TM_CONTACT_CB);
+						LM_INFO("register_tmcb(0x%x, %s, unreference_dialog_contact) dlg=%p\n",TMCB_RESPONSE_FWDED,
 							dir==DLG_DIR_UPSTREAM?"dlg_update_caller_rpl_contact":"dlg_update_callee_rpl_contact",dlg);
 						if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 						(dir==DLG_DIR_UPSTREAM)?dlg_update_caller_rpl_contact:
-						dlg_update_callee_rpl_contact, (void*)dlg, unreference_dialog)<0 ) {
+						dlg_update_callee_rpl_contact, (void*)dlg, unreference_dialog_contact)<0 ) {
 							LM_ERR("failed to register TMCB (4)\n");
-							unref_dlg( dlg , 1);
+							unref_dlg_reason(dlg, 1, DLG_REF_TM_CONTACT_CB);
 						}
 					}
 				}
@@ -2390,12 +2421,12 @@ after_unlock5:
 				/* ref the dialog as registered into the transaction callback.
 				 * unref will be done when the callback will be destroyed */
 				LM_INFO("transaction callback dlg=%p\n",dlg);
-				ref_dlg_unsafe( dlg, 1);
+				ref_dlg_unsafe_reason(dlg, 1, DLG_REF_CSEQ_MAP);
 				dlg_unlock( d_table,d_entry);
 
 				if(parse_headers(req, HDR_CSEQ_F, 0) <0 ) {
 					LM_ERR("failed to parse cseq header \n");
-					unref_dlg(dlg,1);
+					unref_dlg_reason(dlg, 1, DLG_REF_CSEQ_MAP);
 					goto early_check;
 				}
 
@@ -2405,7 +2436,7 @@ after_unlock5:
 
 				if (wrap == 0){
 					LM_ERR("No more shm mem\n");
-					unref_dlg(dlg, 1);
+					unref_dlg_reason(dlg, 1, DLG_REF_CSEQ_MAP);
 					goto early_check;
 				}
 
@@ -2421,7 +2452,7 @@ after_unlock5:
 				(dir==DLG_DIR_UPSTREAM)?dlg_seq_down_onreply_mod_cseq:dlg_seq_up_onreply_mod_cseq,
 				(void*)wrap, unreference_dialog_cseq)<0 ) {
 					LM_ERR("failed to register TMCB (2)\n");
-					unref_dlg( dlg , 1);
+					unref_dlg_reason(dlg, 1, DLG_REF_CSEQ_MAP);
 					shm_free(wrap);
 				}
 			}
@@ -2432,14 +2463,14 @@ after_unlock5:
 			}
 			if (dlg->cbs.types & DLGCB_RESPONSE_WITHIN)
 			{
-				ref_dlg( dlg , 1);
-				LM_INFO("register_tmcb(0x%x, %s, unreference_dialog) dlg=%p\n",TMCB_RESPONSE_FWDED,
+				ref_dlg_reason(dlg, 1, DLG_REF_TM_RESPONSE_WITHIN_CB);
+				LM_INFO("register_tmcb(0x%x, %s, unreference_dialog_response_within) dlg=%p\n",TMCB_RESPONSE_FWDED,
 					dir==DLG_DIR_UPSTREAM?"dlg_seq_down_onreply":"dlg_seq_up_onreply",dlg);
 				if ( d_tmb.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 				(dir==DLG_DIR_UPSTREAM)?dlg_seq_down_onreply:dlg_seq_up_onreply,
-				(void*)dlg, unreference_dialog)<0 ) {
+				(void*)dlg, unreference_dialog_response_within)<0 ) {
 					LM_ERR("failed to register TMCB (2)\n");
-						unref_dlg( dlg , 1);
+						unref_dlg_reason(dlg, 1, DLG_REF_TM_RESPONSE_WITHIN_CB);
 				}
 			}
 		}
@@ -2480,7 +2511,7 @@ early_check:
 			} else {
 				LM_INFO("dlg_has_options_pinging() dlg=%p\n",dlg);
 				/* reference dialog as kept in ping timer list */
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_PING_TIMER);
 			}
 		}
 
@@ -2497,7 +2528,7 @@ early_check:
 			} else {
 				LM_INFO("dlg_has_reinvite_pinging() dlg=%p\n",dlg);
 				/* reference dialog as kept in reinvite ping timer list */
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_REINVITE_PING_TIMER);
 			}
 		}
 
@@ -2523,6 +2554,7 @@ void dlg_ontimeout(struct dlg_tl *tl)
 	int old_state;
 	int unref;
 	int do_expire_actions = 1;
+	dlg_ref_flags_t unref_flags;
 
 	dlg = get_dlg_tl_payload(tl);
 
@@ -2575,7 +2607,7 @@ void dlg_ontimeout(struct dlg_tl *tl)
 			 * have 2 refs for timerlist, the old one and new one
 			 * -> get rid of one */
 			LM_INFO("get rid of one timerlist refs dlg=%p\n",dlg);
-			unref_dlg(dlg, 1);
+			unref_dlg_reason(dlg, 1, DLG_REF_TIMER);
 			/* also replicate an update, if some dlg data changed during
 			 * the execution of the on-timeout route */
 			if (dialog_repl_cluster && dlg->flags&DLG_FLAG_VP_CHANGED)
@@ -2599,7 +2631,8 @@ void dlg_ontimeout(struct dlg_tl *tl)
 		 * only one code path (timer or BYE handler) can win. */
 		next_state_dlg(dlg, DLG_EVENT_REQBYE, DLG_DIR_DOWNSTREAM,
 			&old_state, &new_state, &unref,
-			dlg->legs_no[DLG_LEG_200OK], do_expire_actions);
+			&unref_flags, dlg->legs_no[DLG_LEG_200OK],
+			do_expire_actions);
 
 		if (new_state == DLG_STATE_DELETED &&
 		old_state != DLG_STATE_DELETED) {
@@ -2644,10 +2677,11 @@ void dlg_ontimeout(struct dlg_tl *tl)
 			/* send BYEs in both directions */
 			dlg_end_dlg(dlg, NULL, do_expire_actions);
 
-			LM_INFO("release timer ref (1) + hash ref from next_state_dlg dlg=%p\n",dlg);
-			/* release timer ref (1) + hash ref from
+			LM_INFO("release timer ref (1) + state-machine ref from next_state_dlg dlg=%p\n",dlg);
+			/* release timer ref (1) + state-machine ref from
 			 * next_state_dlg (unref) */
-			unref_dlg(dlg, unref + 1);
+			unref_dlg_reason(dlg, unref + 1,
+				DLG_REF_TIMER | unref_flags);
 
 			if_update_stat(dlg_enable_stats, expired_dlgs, 1);
 			if_update_stat(dlg_enable_stats, active_dlgs, -1);
@@ -2657,13 +2691,14 @@ void dlg_ontimeout(struct dlg_tl *tl)
 		/* Lost the race -- a BYE handler already transitioned this
 		 * dialog to DELETED and owns cleanup. Release timer ref. */
 		LM_INFO("Lost the race -- a BYE handler already transitioned this dialog to DELETED and owns cleanup dlg=%p\n",dlg);
-		unref_dlg(dlg, 1);
+		unref_dlg_reason(dlg, 1, DLG_REF_TIMER);
 		return;
 	}
 
 	/* act like as if we've received a BYE from caller */
 	next_state_dlg(dlg, DLG_EVENT_REQBYE, DLG_DIR_DOWNSTREAM, &old_state,
-		&new_state, &unref, dlg->legs_no[DLG_LEG_200OK], do_expire_actions);
+		&new_state, &unref, &unref_flags, dlg->legs_no[DLG_LEG_200OK],
+		do_expire_actions);
 
 	if (new_state==DLG_STATE_DELETED && old_state!=DLG_STATE_DELETED) {
 		LM_DBG("timeout for dlg with CallID '%.*s' and tags '%.*s' '%.*s'\n",
@@ -2698,13 +2733,14 @@ void dlg_ontimeout(struct dlg_tl *tl)
 			remove_dialog_from_db(dlg);
 
 		LM_INFO("+ timer list dlg=%p\n",dlg);
-		unref_dlg(dlg, unref + 1 /*timer list*/);
+		unref_dlg_reason(dlg, unref + 1 /*timer list*/,
+			DLG_REF_TIMER | unref_flags);
 
 		if_update_stat(dlg_enable_stats, expired_dlgs, 1);
 		if_update_stat(dlg_enable_stats, active_dlgs, -1);
 	} else {
 		LM_INFO("just timer list dlg=%p\n",dlg);
-		unref_dlg(dlg, 1 /*just timer list*/);
+		unref_dlg_reason(dlg, 1 /*just timer list*/, DLG_REF_TIMER);
 	}
 
 	return;
@@ -3141,7 +3177,7 @@ int terminate_dlg(const str *callid, unsigned int h_entry, unsigned int h_id,
 	}
 
 	LM_INFO("terminate dlg=%p\n",dlg);
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 	return ret;
 }
 

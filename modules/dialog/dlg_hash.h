@@ -131,9 +131,41 @@ struct dlg_leg {
 #define TOPOH_KEEP_ADV_A  (1 << 5)
 #define TOPOH_KEEP_ADV_B  (1 << 6)
 
+typedef unsigned long long dlg_ref_flags_t;
+
+#define DLG_REF_UNTRACKED             (1ULL << 0)
+#define DLG_REF_HASH                  (1ULL << 1)
+#define DLG_REF_TM_CREATE_CB          (1ULL << 2)
+#define DLG_REF_SCRIPT_CTX            (1ULL << 3)
+#define DLG_REF_TIMER                 (1ULL << 4)
+#define DLG_REF_PING_TIMER            (1ULL << 5)
+#define DLG_REF_REINVITE_PING_TIMER   (1ULL << 6)
+#define DLG_REF_TRANSACTION_CTX       (1ULL << 7)
+#define DLG_REF_CSEQ_MAP              (1ULL << 8)
+#define DLG_REF_BYE_CALLER            (1ULL << 9)
+#define DLG_REF_BYE_CALLEE            (1ULL << 10)
+#define DLG_REF_IPC                   (1ULL << 11)
+#define DLG_REF_SEQ_MI                (1ULL << 12)
+#define DLG_REF_INDIALOG_API          (1ULL << 13)
+#define DLG_REF_DB_LOAD               (1ULL << 14)
+#define DLG_REF_DB_TIMER              (1ULL << 15)
+#define DLG_REF_DB_DELETE             (1ULL << 16)
+#define DLG_REF_REPLICATION           (1ULL << 17)
+#define DLG_REF_PROFILE               (1ULL << 18)
+#define DLG_REF_EXTERNAL_API          (1ULL << 19)
+#define DLG_REF_TOPOH_TMCB            (1ULL << 20)
+#define DLG_REF_OPTIONS_PING_CALLER_CB (1ULL << 21)
+#define DLG_REF_OPTIONS_PING_CALLEE_CB (1ULL << 22)
+#define DLG_REF_REINVITE_PING_CALLER_CB (1ULL << 23)
+#define DLG_REF_REINVITE_PING_CALLEE_CB (1ULL << 24)
+#define DLG_REF_TM_SDP_CB             (1ULL << 25)
+#define DLG_REF_TM_CONTACT_CB         (1ULL << 26)
+#define DLG_REF_TM_RESPONSE_WITHIN_CB (1ULL << 27)
+
 struct dlg_cell
 {
 	volatile int         ref;
+	volatile dlg_ref_flags_t ref_flags;
 	struct dlg_cell      *next;
 	struct dlg_cell      *prev;
 	unsigned int         h_id;
@@ -299,16 +331,20 @@ static inline str* dlg_leg_to_uri(struct dlg_cell *dlg,int leg_no)
 
 void unlink_unsafe_dlg(struct dlg_entry *d_entry, struct dlg_cell *dlg);
 void destroy_dlg(struct dlg_cell *dlg);
+void dlg_ref_update(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags, int is_ref);
+void dlg_unref_update(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags);
 
 #ifdef DBG_DIALOG
 #define DBG_REF(dlg, cnt) \
 	sh_log((dlg)->hist, DLG_REF, "h=%d, state=%d, flags=0x%x, ref %d with +%d", \
 	       (dlg)->h_entry, (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt)); \
-	LM_INFO("dlg=%p, state=%d, flags=0x%x, ref %d with +%d\n", (dlg), (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
+	LM_INFO("%s:%d dlg=%p, state=%d, flags=0x%x, ref %d with +%d\n", __FILE__, __LINE__, (dlg), (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
 #define DBG_UNREF(dlg, cnt) \
 	sh_log((dlg)->hist, DLG_UNREF, "h=%d, state=%d, flags=0x%x, unref %d with -%d", \
 	       (dlg)->h_entry, (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt)); \
-	LM_INFO("dlg=%p, state=%d, flags=0x%x, unref %d with -%d", (dlg), (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
+	LM_INFO("%s:%d dlg=%p, state=%d, flags=0x%x, unref %d with -%d", __FILE__, __LINE__, (dlg), (dlg)->state, (dlg)->flags, (dlg)->ref, (cnt));
 #define DBG_FLUSH(dlg) sh_flush((dlg)->hist)
 #else
 #define DBG_REF(dlg, cnt)
@@ -316,16 +352,21 @@ void destroy_dlg(struct dlg_cell *dlg);
 #define DBG_FLUSH(dlg)
 #endif
 
-#define ref_dlg_unsafe(_dlg,_cnt)     \
+#define ref_dlg_unsafe_reason(_dlg,_cnt,_ref_flags)     \
 	do { \
 		DBG_REF(_dlg, _cnt); \
 		(_dlg)->ref += (_cnt); \
+		dlg_ref_update(_dlg, _cnt, _ref_flags, 1); \
 	}while(0)
 
-#define unref_dlg_unsafe(_dlg,_cnt,_d_entry)   \
+#define ref_dlg_unsafe(_dlg,_cnt) \
+	ref_dlg_unsafe_reason(_dlg, _cnt, DLG_REF_UNTRACKED)
+
+#define unref_dlg_unsafe_reason(_dlg,_cnt,_d_entry,_ref_flags)   \
 	do { \
 		DBG_UNREF(_dlg, _cnt); \
 		(_dlg)->ref -= (_cnt); \
+		dlg_unref_update(_dlg, _cnt, _ref_flags); \
 		if ((_dlg)->ref<0) {\
 			DBG_FLUSH(_dlg); \
 			LM_CRIT("bogus ref %d with cnt %d for dlg %p [%u:%u] "\
@@ -350,6 +391,9 @@ void destroy_dlg(struct dlg_cell *dlg);
 				(_dlg)->del_delay?(_dlg)->del_delay:dlg_del_delay); \
 		}\
 	}while(0)
+
+#define unref_dlg_unsafe(_dlg,_cnt,_d_entry) \
+	unref_dlg_unsafe_reason(_dlg, _cnt, _d_entry, DLG_REF_UNTRACKED)
 
 /*
  * @input - str
@@ -439,6 +483,8 @@ struct dlg_cell *get_dlg_by_dialog_id(str *dialog_id);
 int get_dlg_direction(void);
 
 void link_dlg(struct dlg_cell *dlg, int extra_refs);
+void link_dlg_reason(struct dlg_cell *dlg, int extra_refs,
+		dlg_ref_flags_t ref_flags);
 
 #define _link_dlg_unsafe(d_entry, dlg) \
 	do { \
@@ -452,6 +498,7 @@ void link_dlg(struct dlg_cell *dlg, int extra_refs);
 		} \
 		DBG_REF(dlg, 1); \
 		dlg->ref++; \
+		dlg_ref_update(dlg, 1, DLG_REF_HASH, 1); \
 		d_entry->cnt++; \
 	} while (0)
 
@@ -462,6 +509,15 @@ void link_dlg(struct dlg_cell *dlg, int extra_refs);
 	} while (0)
 
 void _unref_dlg(struct dlg_cell *dlg, unsigned int cnt);
+void _unref_dlg_reason(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags);
+void unref_dlg_ctx(struct dlg_cell *dlg);
+#define unref_dlg_reason(dlg, cnt, ref_flags) \
+	do { \
+		DBG_UNREF(dlg, cnt); \
+		_unref_dlg_reason(dlg, cnt, ref_flags); \
+	} while (0)
+
 #define unref_dlg(dlg, cnt) \
 	do { \
 		DBG_UNREF(dlg, cnt); \
@@ -469,14 +525,20 @@ void _unref_dlg(struct dlg_cell *dlg, unsigned int cnt);
 	} while (0)
 
 void _ref_dlg(struct dlg_cell *dlg, unsigned int cnt);
-#define ref_dlg(dlg, cnt) \
+void _ref_dlg_reason(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags);
+#define ref_dlg_reason(dlg, cnt, ref_flags) \
 	do { \
 		DBG_REF(dlg, cnt); \
-		_ref_dlg(dlg, cnt); \
+		_ref_dlg_reason(dlg, cnt, ref_flags); \
 	} while (0)
 
+#define ref_dlg(dlg, cnt) \
+	ref_dlg_reason(dlg, cnt, DLG_REF_UNTRACKED)
+
 void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
-		int *new_state, int *unref, int last_dst_leg, char replicate_events);
+		int *new_state, int *unref, dlg_ref_flags_t *unref_flags,
+		int last_dst_leg, char replicate_events);
 
 mi_response_t *mi_print_dlgs(const mi_params_t *params,
 								struct mi_handler *async_hdl);
@@ -506,6 +568,13 @@ static inline void unref_dlg_destroy_safe(struct dlg_cell *dlg, unsigned int cnt
 {
 	if (d_table)
 		unref_dlg(dlg, cnt);
+}
+
+static inline void unref_dlg_destroy_safe_reason(struct dlg_cell *dlg,
+		unsigned int cnt, dlg_ref_flags_t ref_flags)
+{
+	if (d_table)
+		unref_dlg_reason(dlg, cnt, ref_flags);
 }
 
 static inline int match_dialog(struct dlg_cell *dlg, str *callid,

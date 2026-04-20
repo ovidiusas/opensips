@@ -87,7 +87,7 @@ static inline int push_new_processing_context( struct dlg_cell *dlg,
 	/* set this dialog in the ctx */
 	ctx_dialog_set(dlg);
 	/* ref it, and it will be unreffed in context destroy */
-	ref_dlg(dlg, 1);
+	ref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 
 	return 0;
 }

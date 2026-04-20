@@ -656,6 +656,8 @@ int load_dlg( struct dlg_binds *dlgb )
 
 	dlgb->dlg_ref = _ref_dlg;
 	dlgb->dlg_unref = unref_dlg_destroy_safe;
+	dlgb->dlg_ref_reason = _ref_dlg_reason;
+	dlgb->dlg_unref_reason = unref_dlg_destroy_safe_reason;
 
 	dlgb->get_direction = get_dlg_direction;
 	dlgb->get_dlg_did = dlg_get_did;
@@ -708,7 +710,7 @@ static int pv_get_dlg_count(struct sip_msg *msg, pv_param_t *param,
 
 static void ctx_dlg_idx_destroy(void *v)
 {
-	unref_dlg((struct dlg_cell*)v, 1);
+	unref_dlg_ctx((struct dlg_cell*)v);
 	/* reset the pointer to make sure no-one is trying to free it anymore */
 	if (current_processing_ctx)
 		ctx_dialog_set(NULL);
@@ -1520,7 +1522,7 @@ static int w_get_dlg_vals(struct sip_msg *msg, pv_spec_t *v_name,
 				LM_ERR("failed to add new value in dlg val list, ignoring\n");
 				/* better exit here, as we will desync the lists */
 				lock_stop_read(dlg->vals_lock);
-				unref_dlg(dlg, 1);
+				unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 				return -1;
 			}
 		}
@@ -1528,7 +1530,7 @@ static int w_get_dlg_vals(struct sip_msg *msg, pv_spec_t *v_name,
 	}
 
 	lock_stop_read(dlg->vals_lock);
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 
 	return 1;
 }
@@ -1837,7 +1839,7 @@ int pv_set_dlg_timeout(struct sip_msg *msg, pv_param_t *param,
 					return -1;
 				case 1:
 					/* dlg inserted in timer list with new expire (reference it)*/
-					ref_dlg(dlg,1);
+					ref_dlg_reason(dlg, 1, DLG_REF_TIMER);
 				case 0:
 					/* timeout value was updated */
 					break;
@@ -2461,7 +2463,7 @@ static int unload_dlg_ctx(struct sip_msg *msg)
 		return -1;
 
 	if ( (dlg=ctx_dialog_get())!=NULL )
-		unref_dlg(dlg,1);
+		unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 
 	ctx_dialog_set(load_ctx_backup);
 	load_ctx_backup = NULL;

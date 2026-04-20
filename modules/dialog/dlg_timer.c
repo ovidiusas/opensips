@@ -888,30 +888,50 @@ void reinvite_reply_from_callee(struct cell* t, int type, struct tmcb_params* ps
 	dlg_handle_seq_reply(dlg, rpl, statuscode, callee_idx(dlg), 1);
 }
 
-void unref_dlg_cb(void *dlg)
+static void unref_dlg_ping_caller_cb(void *dlg)
 {
-	unref_dlg_destroy_safe((struct dlg_cell*)dlg,1);
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dlg, 1,
+		DLG_REF_OPTIONS_PING_CALLER_CB);
+}
+
+static void unref_dlg_ping_callee_cb(void *dlg)
+{
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dlg, 1,
+		DLG_REF_OPTIONS_PING_CALLEE_CB);
+}
+
+static void unref_dlg_reinvite_ping_caller_cb(void *dlg)
+{
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dlg, 1,
+		DLG_REF_REINVITE_PING_CALLER_CB);
+}
+
+static void unref_dlg_reinvite_ping_callee_cb(void *dlg)
+{
+	unref_dlg_destroy_safe_reason((struct dlg_cell*)dlg, 1,
+		DLG_REF_REINVITE_PING_CALLEE_CB);
 }
 
 /* Atomically terminate a dialog from a ping/timer context (GH-3835).
  * Claims the CONFIRMED->DELETED transition via next_state_dlg so that
  * a concurrent BYE cannot race.  Returns 1 if the dialog was terminated,
  * 0 if another code path already owns it. */
-static int dlg_ping_terminate(struct dlg_cell *dlg)
+static int dlg_ping_terminate(struct dlg_cell *dlg, dlg_ref_flags_t list_ref)
 {
 	int old_state, new_state, unref;
+	dlg_ref_flags_t unref_flags;
 	struct sip_msg *fake_msg = NULL;
 	context_p old_ctx;
 	context_p *new_ctx;
 
 	next_state_dlg(dlg, DLG_EVENT_REQBYE, DLG_DIR_DOWNSTREAM,
 		&old_state, &new_state, &unref,
-		dlg->legs_no[DLG_LEG_200OK], 1);
+		&unref_flags, dlg->legs_no[DLG_LEG_200OK], 1);
 
 	if (new_state != DLG_STATE_DELETED || old_state == DLG_STATE_DELETED) {
 		/* Lost the race -- a BYE handler already owns this dialog */
 		LM_INFO("Lost the race -- a BYE handler already owns this dialog dlg=%p\n",dlg);
-		unref_dlg(dlg, 1);
+		unref_dlg_reason(dlg, 1, list_ref);
 		return 0;
 	}
 
@@ -938,9 +958,9 @@ static int dlg_ping_terminate(struct dlg_cell *dlg)
 
 	dlg_end_dlg(dlg, NULL, 1);
 
-	/* ping list ref (1) + hash ref from next_state_dlg (unref) */
-	LM_INFO("ping list ref (1) + hash ref from next_state_dlg dlg=%p\n",dlg);
-	unref_dlg(dlg, unref + 1);
+	/* ping list ref (1) + state-machine ref from next_state_dlg (unref) */
+	LM_INFO("ping list ref (1) + state-machine ref from next_state_dlg dlg=%p\n",dlg);
+	unref_dlg_reason(dlg, unref + 1, list_ref | unref_flags);
 
 	if_update_stat(dlg_enable_stats, active_dlgs, -1);
 	return 1;
@@ -975,7 +995,7 @@ void dlg_options_routine(unsigned int ticks , void * attr)
 		}
 		/* Atomically claim CONFIRMED->DELETED before sending BYEs
 		 * to prevent race with concurrent BYE (GH-3835) */
-		dlg_ping_terminate(dlg);
+		dlg_ping_terminate(dlg, DLG_REF_PING_TIMER);
 	}
 
 	it = to_be_deleted;
@@ -986,7 +1006,7 @@ void dlg_options_routine(unsigned int ticks , void * attr)
 		LM_INFO("ping timer list dlg=%p\n",dlg);
 		/* if marked as to be deleted, we let it go
 		 * for the ping timer list as well */
-		unref_dlg(dlg,1);
+		unref_dlg_reason(dlg, 1, DLG_REF_PING_TIMER);
 		shm_free(it);
 		it = curr;
 	}
@@ -1017,24 +1037,24 @@ void dlg_options_routine(unsigned int ticks , void * attr)
 		if (dlg->state != DLG_STATE_DELETED && it->timeout <= current_ticks) {
 			if (dlg->flags & DLG_FLAG_PING_CALLER &&
 			        dlg->legs[DLG_CALLER_LEG].reply_received == DLG_PING_SUCCESS) {
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_OPTIONS_PING_CALLER_CB);
 				if (send_leg_msg(dlg,&options_str,callee_idx(dlg),
-				DLG_CALLER_LEG,0,0,reply_from_caller,dlg,unref_dlg_cb,
+				DLG_CALLER_LEG,0,0,reply_from_caller,dlg,unref_dlg_ping_caller_cb,
 				&dlg->legs[DLG_CALLER_LEG].reply_received) < 0) {
 					LM_ERR("failed to ping caller\n");
-					unref_dlg(dlg,1);
+					unref_dlg_reason(dlg, 1, DLG_REF_OPTIONS_PING_CALLER_CB);
 				}
 			}
 
 			if (dlg->flags & DLG_FLAG_PING_CALLEE &&
 			        dlg->legs[callee_idx(dlg)].reply_received == DLG_PING_SUCCESS) {
 				LM_INFO("DLG_PING_SUCCESS dlg=%p\n",dlg);
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_OPTIONS_PING_CALLEE_CB);
 				if (send_leg_msg(dlg,&options_str,DLG_CALLER_LEG,
-				callee_idx(dlg),0,0,reply_from_callee,dlg,unref_dlg_cb,
+				callee_idx(dlg),0,0,reply_from_callee,dlg,unref_dlg_ping_callee_cb,
 				&dlg->legs[callee_idx(dlg)].reply_received) < 0) {
 					LM_ERR("failed to ping callee\n");
-					unref_dlg(dlg,1);
+					unref_dlg_reason(dlg, 1, DLG_REF_OPTIONS_PING_CALLEE_CB);
 				}
 			}
 
@@ -1081,7 +1101,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 		}
 		/* Atomically claim CONFIRMED->DELETED before sending BYEs
 		 * to prevent race with concurrent BYE (GH-3835) */
-		dlg_ping_terminate(dlg);
+		dlg_ping_terminate(dlg, DLG_REF_REINVITE_PING_TIMER);
 	}
 
 	it = to_be_deleted;
@@ -1091,7 +1111,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 		curr = it->next;
 		/* if marked as to be deleted, we let it go
 		 * for the ping timer list as well */
-		unref_dlg(dlg,1);
+		unref_dlg_reason(dlg, 1, DLG_REF_REINVITE_PING_TIMER);
 		shm_free(it);
 		it = curr;
 	}
@@ -1134,13 +1154,13 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 						&dlg->legs[callee_idx(dlg)].in_sdp);
 				
 				LM_INFO("DLG_PING_SUCCESS dlg=%p\n",dlg);
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_REINVITE_PING_CALLER_CB);
 				if (send_leg_msg(dlg,&invite_str,callee_idx(dlg),
 				DLG_CALLER_LEG,&extra_headers,sdp,
-				reinvite_reply_from_caller,dlg,unref_dlg_cb,
+				reinvite_reply_from_caller,dlg,unref_dlg_reinvite_ping_caller_cb,
 				&dlg->legs[DLG_CALLER_LEG].reinvite_confirmed) < 0) {
 					LM_ERR("failed to ping caller\n");
-					unref_dlg(dlg,1);
+					unref_dlg_reason(dlg, 1, DLG_REF_REINVITE_PING_CALLER_CB);
 				}
 
 				pkg_free(extra_headers.s);
@@ -1160,12 +1180,13 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 						&dlg->legs[DLG_CALLER_LEG].in_sdp);
 
 				LM_INFO("DLG_PING_SUCCESS dlg=%p\n",dlg);
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_REINVITE_PING_CALLEE_CB);
 				if (send_leg_msg(dlg,&invite_str,DLG_CALLER_LEG, callee_idx(dlg),
-				&extra_headers,sdp,reinvite_reply_from_callee, dlg,unref_dlg_cb,
+				&extra_headers,sdp,reinvite_reply_from_callee, dlg,
+				unref_dlg_reinvite_ping_callee_cb,
 				&dlg->legs[callee_idx(dlg)].reinvite_confirmed) < 0) {
 					LM_ERR("failed to ping callee\n");
-					unref_dlg(dlg,1);
+					unref_dlg_reason(dlg, 1, DLG_REF_REINVITE_PING_CALLEE_CB);
 				}
 
 				pkg_free(extra_headers.s);

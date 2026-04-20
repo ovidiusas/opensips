@@ -338,7 +338,7 @@ int dlg_replicated_create(bin_packet_t *packet, struct dlg_cell *cell,
 	}
 
 	/* timer list + this ref */
-	ref_dlg_unsafe(dlg, 2);
+	ref_dlg_unsafe_reason(dlg, 2, DLG_REF_TIMER | DLG_REF_REPLICATION);
 
 	LM_DBG("Received initial timeout of %d for dialog %.*s, safe = %d\n",
 		dlg->tl.timeout, callid.len, callid.s, safe);
@@ -367,7 +367,8 @@ int dlg_replicated_create(bin_packet_t *packet, struct dlg_cell *cell,
 		 * interested in */
 		if (get_shtag_sync_status(dlg) != SHTAG_SYNC_REQUIRED) {
 			dlg_unlock(d_table, d_entry);
-			unref_dlg(dlg, 3);
+			unref_dlg_reason(dlg, 3,
+				DLG_REF_HASH | DLG_REF_TIMER | DLG_REF_REPLICATION);
 
 			return 0;
 		}
@@ -379,7 +380,7 @@ int dlg_replicated_create(bin_packet_t *packet, struct dlg_cell *cell,
 
 	if (dlg_db_mode == DB_MODE_DELAYED) {
 		/* to be later removed by timer */
-		ref_dlg_unsafe(dlg, 1);
+		ref_dlg_unsafe_reason(dlg, 1, DLG_REF_DB_TIMER);
 	}
 
 	/* avoid AB/BA deadlock with pinging routines */
@@ -389,7 +390,7 @@ int dlg_replicated_create(bin_packet_t *packet, struct dlg_cell *cell,
 		if (insert_ping_timer(dlg) != 0)
 			LM_CRIT("Unable to insert dlg %p into ping timer\n",dlg);
 		else {
-			ref_dlg(dlg, 1);
+			ref_dlg_reason(dlg, 1, DLG_REF_PING_TIMER);
 		}
 	}
 
@@ -397,7 +398,7 @@ int dlg_replicated_create(bin_packet_t *packet, struct dlg_cell *cell,
 		if (insert_reinvite_ping_timer(dlg) != 0) {
 			LM_CRIT("Unable to insert dlg %p into reinvite ping timer\n",dlg);
 		} else {
-			ref_dlg(dlg, 1);
+			ref_dlg_reason(dlg, 1, DLG_REF_REINVITE_PING_TIMER);
 		}
 	}
 
@@ -408,7 +409,7 @@ int dlg_replicated_create(bin_packet_t *packet, struct dlg_cell *cell,
 
 	run_load_callback_per_dlg(dlg);
 
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_REPLICATION);
 	return 0;
 
 pre_linking_error:
@@ -420,7 +421,7 @@ pre_linking_error:
 error:
 	dlg_unlock(d_table, d_entry);
 	if (dlg)
-		unref_dlg(dlg, 1);
+		unref_dlg_reason(dlg, 1, DLG_REF_HASH);
 
 malformed:
 	return -1;
@@ -564,7 +565,7 @@ int dlg_replicated_update(bin_packet_t *packet)
 			break;
 		case 1:
 			/* dlg inserted in timer list with new expire (reference it)*/
-			ref_dlg_unsafe(dlg,1);
+			ref_dlg_unsafe_reason(dlg, 1, DLG_REF_TIMER);
 		}
 	}
 
@@ -576,13 +577,13 @@ int dlg_replicated_update(bin_packet_t *packet)
 
 	dlg->flags |= DLG_FLAG_VP_CHANGED;
 
-	ref_dlg_unsafe(dlg, 1);
+	ref_dlg_unsafe_reason(dlg, 1, DLG_REF_REPLICATION);
 	dlg_unlock(d_table, d_entry);
 
 	if (profiles.s && profiles.len != 0)
 		read_dialog_profiles(profiles.s, profiles.len, dlg, 1, 1);
 
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_REPLICATION);
 	return 0;
 
 error:
@@ -600,6 +601,7 @@ int dlg_replicated_delete(bin_packet_t *packet)
 	unsigned int dir, _ = -1;
 	struct dlg_cell *dlg;
 	int old_state, new_state, unref, ret;
+	dlg_ref_flags_t unref_flags;
 	unsigned int h_id;
 	int h_entry;
 	short pkg_ver = get_bin_pkg_version(packet);
@@ -631,7 +633,8 @@ int dlg_replicated_delete(bin_packet_t *packet)
 
 	/* simulate BYE received from caller */
 	next_state_dlg(dlg, DLG_EVENT_REQBYE, DLG_DIR_DOWNSTREAM, &old_state,
-		&new_state, &unref, dlg->legs_no[DLG_LEG_200OK], 0);
+		&new_state, &unref, &unref_flags, dlg->legs_no[DLG_LEG_200OK],
+		0);
 
 	if (old_state == new_state) {
 		LM_ERR("duplicate dialog delete request (callid: |%.*s|"
@@ -662,9 +665,11 @@ int dlg_replicated_delete(bin_packet_t *packet)
 		LM_INFO("remove_dlg_timer() dlg=%p\n", dlg);
 		/* dialog successfully removed from timer -> unref */
 		unref++;
+		unref_flags |= DLG_REF_TIMER;
 	}
 
-	unref_dlg(dlg, 1 + unref);
+	unref_dlg_reason(dlg, 1 + unref,
+		DLG_REF_SCRIPT_CTX | unref_flags);
 	if_update_stat(dlg_enable_stats, active_dlgs, -1);
 
 	return 0;
@@ -1202,21 +1207,25 @@ struct dlg_cell *drop_dlg(struct dlg_cell *dlg, int i)
 {
 	struct dlg_cell *next_dlg;
 	int ret, unref, old_state, new_state;
+	dlg_ref_flags_t unref_flags;
 
 	/* make sure dialog is not freed while we don't hold the lock */
-	ref_dlg_unsafe(dlg, 1);
+	ref_dlg_unsafe_reason(dlg, 1, DLG_REF_REPLICATION);
 	dlg_unlock(d_table, &d_table->entries[i]);
 
 	/* simulate BYE received from caller */
 	next_state_dlg(dlg, DLG_EVENT_REQBYE, DLG_DIR_UPSTREAM, &old_state,
-	        &new_state, &unref, dlg->legs_no[DLG_LEG_200OK], 0);
+	        &new_state, &unref, &unref_flags,
+	        dlg->legs_no[DLG_LEG_200OK], 0);
 
 	if (new_state != DLG_STATE_DELETED) {
-		unref_dlg(dlg, 1 + unref);
+		unref_dlg_reason(dlg, 1 + unref,
+			DLG_REF_REPLICATION | unref_flags);
 		dlg = dlg->next;
 		return dlg;
 	}
 	unref++; /* the extra added ref */
+	unref_flags |= DLG_REF_REPLICATION;
 	dlg_lock(d_table, &d_table->entries[i]);
 
 	destroy_linkers_unsafe(dlg);
@@ -1240,12 +1249,15 @@ struct dlg_cell *drop_dlg(struct dlg_cell *dlg, int i)
 		LM_INFO("remove_dlg_timer() dlg=%p\n", dlg);
 		/* successfully removed from timer list */
 		unref++;
+		unref_flags |= DLG_REF_TIMER;
 	}
 
 	if (dlg_db_mode != DB_MODE_NONE) {
 		if (dlg_db_mode == DB_MODE_DELAYED &&
-			!(dlg->flags&DLG_FLAG_DB_DELETED))
+			!(dlg->flags&DLG_FLAG_DB_DELETED)) {
 			unref++;
+			unref_flags |= DLG_REF_DB_TIMER;
+		}
 
 		if (dlg_db_mode != DB_MODE_SHUTDOWN &&
 			!(dlg->flags&DLG_FLAG_DB_DELETED)) {
@@ -1259,7 +1271,8 @@ struct dlg_cell *drop_dlg(struct dlg_cell *dlg, int i)
 		if_update_stat(dlg_enable_stats, active_dlgs, -1);
 
 	next_dlg = dlg->next;
-	unref_dlg_unsafe(dlg, unref, &d_table->entries[i]);
+	unref_dlg_unsafe_reason(dlg, unref, &d_table->entries[i],
+		unref_flags);
 
 	return next_dlg;
 }

@@ -118,7 +118,7 @@ static inline void set_final_update_cols(db_val_t *, struct dlg_cell *, int);
 	do{\
 		if (VAL_NULL((_values)+ (_index))) { \
 			if (_not_null) {\
-				if (_unref) unref_dlg(dlg,1);\
+				if (_unref) unref_dlg_reason(dlg, 1, DLG_REF_HASH);\
 				goto next_dialog; \
 			} else { \
 				(_res).s = 0; \
@@ -705,7 +705,7 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 			NULL, &cseq2, callee_sock,&mangled_fu,&mangled_tu,0,0)!=0) ) {
 				LM_ERR("dlg_set_leg_info failed\n");
 				/* destroy the dialog */
-				unref_dlg_unsafe(dlg, 1, d_entry);
+				unref_dlg_unsafe_reason(dlg, 1, d_entry, DLG_REF_HASH);
 				dlg_unlock(d_table, d_entry);
 				continue;
 			}
@@ -765,13 +765,14 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 					dlg->legs[callee_idx(dlg)].tag.len,
 					ZSW(dlg->legs[callee_idx(dlg)].tag.s));
 				/* destroy the dialog */
-				unref_dlg_unsafe(dlg, 1, d_entry);
+				unref_dlg_unsafe_reason(dlg, 1, d_entry, DLG_REF_HASH);
 				dlg_unlock(d_table, d_entry);
 				continue;
 			}
 
 			/* reference the dialog as kept in the timer list + this ref */
-			ref_dlg_unsafe(dlg, 2);
+			ref_dlg_unsafe_reason(dlg, 2,
+				DLG_REF_TIMER | DLG_REF_DB_LOAD);
 			LM_DBG("current dialog timeout is %u\n", dlg->tl.timeout);
 
 			dlg->lifetime = 0;
@@ -803,7 +804,7 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 					LM_CRIT("Unable to insert dlg %p into ping timer\n",dlg);
 				else {
 					/* reference dialog as kept in ping timer list */
-					ref_dlg(dlg, 1);
+					ref_dlg_reason(dlg, 1, DLG_REF_PING_TIMER);
 				}
 			}
 
@@ -817,12 +818,13 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 					        "ping timer\n", dlg);
 				else
 					/* reference dialog as kept in reinvite ping timer list */
-					ref_dlg(dlg, 1);
+					ref_dlg_reason(dlg, 1,
+						DLG_REF_REINVITE_PING_TIMER);
 			}
 
 			if (dlg_db_mode == DB_MODE_DELAYED) {
 				/* to be later removed by timer */
-				ref_dlg(dlg, 1);
+				ref_dlg_reason(dlg, 1, DLG_REF_DB_TIMER);
 			}
 
 			if (dlg->state==DLG_STATE_CONFIRMED_NA ||
@@ -832,7 +834,7 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 				early_dlgs_cnt++;
 			}
 			run_load_callback_per_dlg(dlg);
-			unref_dlg(dlg, 1);
+			unref_dlg_reason(dlg, 1, DLG_REF_DB_LOAD);
 
 			next_dialog:;
 		}
@@ -936,7 +938,8 @@ int dlg_timer_remove_from_db(struct dlg_cell *cell)
 		/* from timer point of view, we are done with the dialogs */
 		for (i=0;i<dlg_bulk_del_no;i++) {
 			cell = dlg_del_holder[i];
-			unref_dlg_unsafe(cell,1,&(d_table->entries[cell->h_entry]));
+			unref_dlg_unsafe_reason(cell, 1,
+				&(d_table->entries[cell->h_entry]), DLG_REF_DB_DELETE);
 		}
 
 		dlg_del_curr_no = 0;
@@ -964,7 +967,7 @@ int dlg_timer_flush_del(void)
 		/* from timer point of view, we are done with the dialogs */
 		for (i=0;i<dlg_del_curr_no;i++) {
 			cell = dlg_del_holder[i];
-			unref_dlg(cell,1);
+			unref_dlg_reason(cell, 1, DLG_REF_DB_DELETE);
 		}
 
 		dlg_del_curr_no = 0;
@@ -1698,7 +1701,8 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 						cell->flags |= DLG_FLAG_DB_DELETED;
 						/* timer is done with this dialog */
 						cell->locked_by = process_no;
-						unref_dlg_unsafe(cell,1,entry);
+						unref_dlg_unsafe_reason(cell, 1, entry,
+							DLG_REF_DB_TIMER);
 						cell->locked_by = 0;
 						cell=next_cell;
 						continue;
@@ -1990,7 +1994,7 @@ static int sync_dlg_db_mem(void)
 				NULL, &cseq2, callee_sock,&mangled_fu,&mangled_tu,0,0)!=0) ) {
 					LM_ERR("dlg_set_leg_info failed\n");
 					/* destroy the dialog */
-					unref_dlg(dlg,1);
+					unref_dlg_reason(dlg, 1, DLG_REF_HASH);
 					continue;
 				}
 				dlg->legs_no[DLG_LEG_200OK] = DLG_FIRST_CALLEE_LEG;
@@ -2061,12 +2065,12 @@ static int sync_dlg_db_mem(void)
 						dlg->legs[callee_idx(dlg)].tag.len,
 						ZSW(dlg->legs[callee_idx(dlg)].tag.s));
 					/* destroy the dialog */
-					unref_dlg(dlg,1);
+					unref_dlg_reason(dlg, 1, DLG_REF_HASH);
 					continue;
 				}
 
 				/* reference the dialog as kept in the timer list */
-				ref_dlg(dlg,1);
+				ref_dlg_reason(dlg, 1, DLG_REF_TIMER);
 				LM_DBG("current dialog timeout is %u\n", dlg->tl.timeout);
 
 				dlg->lifetime = 0;
@@ -2081,7 +2085,7 @@ static int sync_dlg_db_mem(void)
 						LM_CRIT("Unable to insert dlg %p into ping timer\n",dlg);
 					else {
 						/* reference dialog as kept in ping timer list */
-						ref_dlg(dlg,1);
+						ref_dlg_reason(dlg, 1, DLG_REF_PING_TIMER);
 					}
 				}
 
@@ -2094,13 +2098,14 @@ static int sync_dlg_db_mem(void)
 						        "ping timer\n", dlg);
 					else {
 						/* reference dialog as kept in reinvite ping timer list */
-						ref_dlg(dlg,1);
+						ref_dlg_reason(dlg, 1,
+							DLG_REF_REINVITE_PING_TIMER);
 					}
 				}
 
 				if (dlg_db_mode == DB_MODE_DELAYED) {
 					/* to be later removed by timer */
-					ref_dlg(dlg,1);
+					ref_dlg_reason(dlg, 1, DLG_REF_DB_TIMER);
 				}
 
 				update_dlg_stats(dlg, +1);
@@ -2514,4 +2519,3 @@ mi_response_t *mi_restore_dlg_db(const mi_params_t *params,
 	else
 		return init_mi_result_ok();
 }
-

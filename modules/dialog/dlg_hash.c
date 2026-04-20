@@ -20,6 +20,7 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "../../dprint.h"
@@ -68,10 +69,211 @@ static event_id_t ei_st_ch_id = EVI_ERROR;
 static evi_param_p id_p, db_id_p, cid_p, fromt_p, tot_p;
 static evi_param_p ostate_p, nstate_p;
 
+struct dlg_ref_flag_name {
+	dlg_ref_flags_t flag;
+	const char *name;
+};
+
+static const struct dlg_ref_flag_name dlg_ref_flag_names[] = {
+	{ DLG_REF_UNTRACKED,           "untracked" },
+	{ DLG_REF_HASH,                "hash" },
+	{ DLG_REF_TM_CREATE_CB,        "tm-create-callback" },
+	{ DLG_REF_SCRIPT_CTX,          "script-context" },
+	{ DLG_REF_TIMER,               "timer" },
+	{ DLG_REF_PING_TIMER,          "options-ping-timer" },
+	{ DLG_REF_REINVITE_PING_TIMER, "reinvite-ping-timer" },
+	{ DLG_REF_TRANSACTION_CTX,     "transaction-context" },
+	{ DLG_REF_CSEQ_MAP,            "cseq-map" },
+	{ DLG_REF_BYE_CALLER,          "bye-caller" },
+	{ DLG_REF_BYE_CALLEE,          "bye-callee" },
+	{ DLG_REF_IPC,                 "ipc" },
+	{ DLG_REF_SEQ_MI,              "mi-sequential" },
+	{ DLG_REF_INDIALOG_API,        "indialog-api" },
+	{ DLG_REF_DB_LOAD,             "db-load" },
+	{ DLG_REF_DB_TIMER,            "db-timer" },
+	{ DLG_REF_DB_DELETE,           "db-delete" },
+	{ DLG_REF_REPLICATION,         "replication" },
+	{ DLG_REF_PROFILE,             "profile" },
+	{ DLG_REF_EXTERNAL_API,        "external-api" },
+	{ DLG_REF_TOPOH_TMCB,          "topology-hiding-tm-callback" },
+	{ DLG_REF_OPTIONS_PING_CALLER_CB, "options-ping-caller-callback" },
+	{ DLG_REF_OPTIONS_PING_CALLEE_CB, "options-ping-callee-callback" },
+	{ DLG_REF_REINVITE_PING_CALLER_CB, "reinvite-ping-caller-callback" },
+	{ DLG_REF_REINVITE_PING_CALLEE_CB, "reinvite-ping-callee-callback" },
+	{ DLG_REF_TM_SDP_CB,           "tm-sdp-callback" },
+	{ DLG_REF_TM_CONTACT_CB,       "tm-contact-callback" },
+	{ DLG_REF_TM_RESPONSE_WITHIN_CB, "tm-response-within-callback" },
+};
+
+static const char *dlg_ref_flags_to_str_buf(dlg_ref_flags_t flags,
+		char *buf, size_t size)
+{
+	char *p = buf;
+	size_t left = size;
+	dlg_ref_flags_t known = 0;
+	int first = 1;
+	int n;
+	unsigned int i;
+
+	if (!flags)
+		return "none";
+	if (!buf || !size)
+		return "";
+
+	*buf = '\0';
+
+	for (i = 0; i < sizeof(dlg_ref_flag_names) / sizeof(dlg_ref_flag_names[0]); i++) {
+		if (!(flags & dlg_ref_flag_names[i].flag))
+			continue;
+
+		n = snprintf(p, left, "%s%s", first ? "" : "|",
+				dlg_ref_flag_names[i].name);
+		if (n < 0 || (size_t)n >= left)
+			break;
+
+		p += n;
+		left -= n;
+		first = 0;
+		known |= dlg_ref_flag_names[i].flag;
+	}
+
+	if (flags & ~known) {
+		snprintf(p, left, "%sunknown(0x%llx)", first ? "" : "|",
+				(unsigned long long)(flags & ~known));
+	}
+
+	return buf;
+}
+
+static const char *dlg_ref_flags_to_str(dlg_ref_flags_t flags)
+{
+	static char buf[256];
+
+	return dlg_ref_flags_to_str_buf(flags, buf, sizeof(buf));
+}
+
+static unsigned int dlg_ref_flags_count(dlg_ref_flags_t flags)
+{
+	unsigned int count = 0;
+
+	while (flags) {
+		count += flags & 1;
+		flags >>= 1;
+	}
+
+	return count;
+}
+
+static dlg_ref_flags_t dlg_ref_flags_drop_one(dlg_ref_flags_t flags)
+{
+	if (flags & DLG_REF_TRANSACTION_CTX)
+		return flags & ~DLG_REF_TRANSACTION_CTX;
+
+	return flags & ~(flags & (~flags + 1));
+}
+
+static dlg_ref_flags_t dlg_ref_final_hash_reason(unsigned int cnt,
+		dlg_ref_flags_t ref_flags)
+{
+	if (ref_flags & DLG_REF_HASH)
+		return ref_flags;
+
+	if (cnt == 1)
+		return DLG_REF_HASH;
+
+	if (dlg_ref_flags_count(ref_flags) >= cnt)
+		ref_flags = dlg_ref_flags_drop_one(ref_flags);
+
+	return ref_flags | DLG_REF_HASH;
+}
+
+static void dlg_ref_update_flags(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t reason_flags, dlg_ref_flags_t clear_flags, int is_ref)
+{
+	dlg_ref_flags_t old_flags;
+	dlg_ref_flags_t bad_flags;
+	char reason_buf[256];
+	char bad_buf[256];
+
+	if (!cnt)
+		return;
+
+	old_flags = dlg->ref_flags;
+	if (dlg_ref_flags_count(reason_flags) != cnt) {
+		LM_CRIT("dlg=%p %s cnt=%u ref=%d reason=%s reason_flags=0x%llx "
+			"has %u flag(s), expected %u; ref_flags=0x%llx\n",
+			dlg, is_ref ? "ref" : "unref", cnt, dlg->ref,
+			dlg_ref_flags_to_str_buf(reason_flags, reason_buf,
+				sizeof(reason_buf)),
+			(unsigned long long)reason_flags,
+			dlg_ref_flags_count(reason_flags), cnt,
+			(unsigned long long)old_flags);
+	}
+
+	if (is_ref)
+		bad_flags = old_flags & reason_flags;
+	else
+		bad_flags = clear_flags & ~old_flags;
+
+	if (!is_ref && (bad_flags & DLG_REF_TRANSACTION_CTX) &&
+		(old_flags & DLG_REF_HASH)) {
+		/* hash tracks hash-list membership until unlink; the state-machine
+		 * delete ref is reported separately without consuming hash early. */
+		bad_flags &= ~DLG_REF_TRANSACTION_CTX;
+	}
+
+	if (bad_flags) {
+		LM_CRIT("dlg=%p %s cnt=%u ref=%d reason=%s reason_flags=0x%llx "
+			"%s: %s (0x%llx); ref_flags=0x%llx\n",
+			dlg, is_ref ? "ref" : "unref", cnt, dlg->ref,
+			dlg_ref_flags_to_str_buf(reason_flags, reason_buf,
+				sizeof(reason_buf)),
+			(unsigned long long)reason_flags,
+			is_ref ? "ref flag(s) already active/used" :
+				"unref flag(s) not active or already released/used",
+			dlg_ref_flags_to_str_buf(bad_flags, bad_buf, sizeof(bad_buf)),
+			(unsigned long long)bad_flags,
+			(unsigned long long)old_flags);
+	}
+
+	if (is_ref)
+		dlg->ref_flags |= reason_flags;
+	else
+		dlg->ref_flags &= ~clear_flags;
+
+	LM_INFO("dlg=%p %s cnt=%u ref=%d reason=%s reason_flags=0x%llx "
+		"ref_flags=0x%llx->0x%llx\n",
+		dlg, is_ref ? "ref" : "unref", cnt, dlg->ref,
+		dlg_ref_flags_to_str(reason_flags), (unsigned long long)reason_flags,
+		(unsigned long long)old_flags, (unsigned long long)dlg->ref_flags);
+}
+
+void dlg_ref_update(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags, int is_ref)
+{
+	dlg_ref_update_flags(dlg, cnt, ref_flags, ref_flags, is_ref);
+}
+
+void dlg_unref_update(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags)
+{
+	dlg_ref_flags_t reason_flags = ref_flags;
+	dlg_ref_flags_t clear_flags = ref_flags;
+
+	if (dlg->ref <= 0 && (dlg->ref_flags & DLG_REF_HASH)) {
+		/* The last unref unlinks the dialog from the hash list, so report
+		 * that final release as hash even if another hold reached zero. */
+		reason_flags = dlg_ref_final_hash_reason(cnt, ref_flags);
+		clear_flags |= DLG_REF_HASH;
+	}
+
+	dlg_ref_update_flags(dlg, cnt, reason_flags, clear_flags, 0);
+}
+
 int dialog_cleanup( struct sip_msg *msg, void *param )
 {
 	if (current_processing_ctx && ctx_dialog_get()) {
-		unref_dlg( ctx_dialog_get(), 1);
+		unref_dlg_ctx(ctx_dialog_get());
 		ctx_dialog_set(NULL);
 	}
 
@@ -98,7 +300,8 @@ struct dlg_cell *get_current_dialog(void)
 		/* if we have context, but no dlg info, and we
 		   found dlg info into transaction, populate
 		   the dialog too */
-		ref_dlg((struct dlg_cell*)trans->dialog_ctx, 1);
+		ref_dlg_reason((struct dlg_cell*)trans->dialog_ctx, 1,
+			DLG_REF_SCRIPT_CTX);
 		ctx_dialog_set(trans->dialog_ctx);
 	}
 	return (struct dlg_cell*)trans->dialog_ctx;
@@ -796,8 +999,7 @@ struct dlg_cell* lookup_dlg( unsigned int h_entry, unsigned int h_id,
 				dlg_unlock( d_table, d_entry);
 				goto not_found;
 			}
-			DBG_REF(dlg, 1);
-			dlg->ref++;
+			ref_dlg_unsafe_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			dlg_unlock( d_table, d_entry);
 			LM_DBG("dialog id=%u found on entry %u\n", h_id, h_entry);
 			return dlg;
@@ -859,8 +1061,7 @@ struct dlg_cell* get_dlg( str *callid, str *ftag, str *ttag,
 				*dst_leg = dst_leg_backup;
 				continue;
 			}
-			DBG_REF(dlg, 1);
-			dlg->ref++;
+			ref_dlg_unsafe_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			dlg_unlock( d_table, d_entry);
 			LM_DBG("dialog callid='%.*s' found\n on entry %u, dir=%d\n",
 				callid->len, callid->s,h_entry,*dir);
@@ -893,7 +1094,7 @@ struct dlg_cell* get_dlg_by_val(struct sip_msg *msg, str *attr, pv_spec_t *val)
 			if ( dlg->state>DLG_STATE_CONFIRMED )
 				continue;
 			if (check_dlg_value(msg, dlg, attr, val, 1)==0) {
-				ref_dlg_unsafe( dlg, 1);
+				ref_dlg_unsafe_reason( dlg, 1, DLG_REF_SCRIPT_CTX);
 				dlg_unlock( d_table, d_entry);
 				return dlg;
 			}
@@ -924,7 +1125,7 @@ struct dlg_cell* get_dlg_by_callid(const str *callid, int active_only)
 			continue;
 		if ( dlg->callid.len==callid->len &&
 		strncmp( dlg->callid.s, callid->s, callid->len)==0 ) {
-			ref_dlg_unsafe( dlg, 1);
+			ref_dlg_unsafe_reason( dlg, 1, DLG_REF_SCRIPT_CTX);
 			dlg_unlock( d_table, d_entry);
 			return dlg;
 		}
@@ -955,7 +1156,7 @@ struct dlg_cell* get_dlg_by_did(str *did, int active_only)
 		if (active_only && dlg->state>DLG_STATE_CONFIRMED )
 			continue;
 		if (dlg->h_id == h_id) {
-			ref_dlg_unsafe( dlg, 1);
+			ref_dlg_unsafe_reason( dlg, 1, DLG_REF_SCRIPT_CTX);
 			dlg_unlock( d_table, d_entry);
 			return dlg;
 		}
@@ -992,7 +1193,8 @@ struct dlg_cell *get_dlg_by_dialog_id(str *dialog_id)
 }
 
 
-void link_dlg(struct dlg_cell *dlg, int extra_refs)
+void link_dlg_reason(struct dlg_cell *dlg, int extra_refs,
+		dlg_ref_flags_t ref_flags)
 {
 	struct dlg_entry *d_entry;
 
@@ -1002,8 +1204,11 @@ void link_dlg(struct dlg_cell *dlg, int extra_refs)
 
 	link_dlg_unsafe(d_entry, dlg);
 
-	DBG_REF(dlg, extra_refs);
-	dlg->ref += extra_refs;
+	if (extra_refs) {
+		DBG_REF(dlg, extra_refs);
+		dlg->ref += extra_refs;
+		dlg_ref_update(dlg, extra_refs, ref_flags, 1);
+	}
 
 	LM_DBG("ref dlg %p with %d -> %d in h_entry %p - %d \n",
 	       dlg, extra_refs + 1, dlg->ref, d_entry, dlg->h_entry);
@@ -1011,6 +1216,12 @@ void link_dlg(struct dlg_cell *dlg, int extra_refs)
 	dlg_unlock( d_table, d_entry);
 }
 
+
+void link_dlg(struct dlg_cell *dlg, int extra_refs)
+{
+	link_dlg_reason(dlg, extra_refs,
+		extra_refs ? DLG_REF_UNTRACKED : 0);
+}
 
 
 void unlink_unsafe_dlg(struct dlg_entry *d_entry,
@@ -1035,23 +1246,65 @@ void unlink_unsafe_dlg(struct dlg_entry *d_entry,
 
 void _ref_dlg(struct dlg_cell *dlg, unsigned int cnt)
 {
-	struct dlg_entry *d_entry;
-
-	d_entry = &(d_table->entries[dlg->h_entry]);
-
-	dlg_lock( d_table, d_entry);
-	ref_dlg_unsafe( dlg, cnt);
-	dlg_unlock( d_table, d_entry);
+	_ref_dlg_reason(dlg, cnt, DLG_REF_EXTERNAL_API);
 }
 
-void _unref_dlg(struct dlg_cell *dlg, unsigned int cnt)
+void _ref_dlg_reason(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags)
 {
 	struct dlg_entry *d_entry;
 
 	d_entry = &(d_table->entries[dlg->h_entry]);
 
 	dlg_lock( d_table, d_entry);
-	unref_dlg_unsafe( dlg, cnt, d_entry);
+	ref_dlg_unsafe_reason( dlg, cnt, ref_flags);
+	dlg_unlock( d_table, d_entry);
+}
+
+void _unref_dlg(struct dlg_cell *dlg, unsigned int cnt)
+{
+	struct dlg_entry *d_entry;
+	dlg_ref_flags_t ref_flags;
+
+	d_entry = &(d_table->entries[dlg->h_entry]);
+
+	dlg_lock( d_table, d_entry);
+	if (cnt == 1) {
+		ref_flags = (dlg->ref_flags & DLG_REF_EXTERNAL_API) ?
+			DLG_REF_EXTERNAL_API : DLG_REF_SCRIPT_CTX;
+	} else {
+		ref_flags = DLG_REF_UNTRACKED;
+	}
+	unref_dlg_unsafe_reason( dlg, cnt, d_entry, ref_flags);
+	dlg_unlock( d_table, d_entry);
+}
+
+void _unref_dlg_reason(struct dlg_cell *dlg, unsigned int cnt,
+		dlg_ref_flags_t ref_flags)
+{
+	struct dlg_entry *d_entry;
+
+	d_entry = &(d_table->entries[dlg->h_entry]);
+
+	dlg_lock( d_table, d_entry);
+	unref_dlg_unsafe_reason( dlg, cnt, d_entry, ref_flags);
+	dlg_unlock( d_table, d_entry);
+}
+
+void unref_dlg_ctx(struct dlg_cell *dlg)
+{
+	struct dlg_entry *d_entry;
+	dlg_ref_flags_t ref_flags;
+
+	if (!d_table)
+		return;
+
+	d_entry = &(d_table->entries[dlg->h_entry]);
+
+	dlg_lock( d_table, d_entry);
+	ref_flags = DLG_REF_SCRIPT_CTX;
+	DBG_UNREF(dlg, 1);
+	unref_dlg_unsafe_reason(dlg, 1, d_entry, ref_flags);
 	dlg_unlock( d_table, d_entry);
 }
 
@@ -1191,13 +1444,15 @@ static inline void log_next_state_dlg(const int event,
 
 
 void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
-		int *new_state, int *unref, int last_dst_leg, char replicate_events)
+		int *new_state, int *unref, dlg_ref_flags_t *unref_flags,
+		int last_dst_leg, char replicate_events)
 {
 	struct dlg_entry *d_entry;
 
 	LM_INFO("dlg=%p\n", dlg);
 	d_entry = &(d_table->entries[dlg->h_entry]);
 	*unref = 0;
+	*unref_flags = 0;
 
 	dlg_lock( d_table, d_entry);
 
@@ -1209,12 +1464,15 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 				case DLG_STATE_UNCONFIRMED:
 				case DLG_STATE_EARLY:
 					dlg->state = DLG_STATE_DELETED;
-					unref_dlg_unsafe(dlg,1,d_entry); /* unref from TM CBs*/
-					*unref = 1; /* unref from hash -> t failed */
+					unref_dlg_unsafe_reason(dlg,1,d_entry,
+						DLG_REF_TM_CREATE_CB); /* unref from TM CBs*/
+					*unref = 1; /* unref from list -> t failed */
+					*unref_flags = DLG_REF_TRANSACTION_CTX;
 					break;
 				case DLG_STATE_CONFIRMED_NA:
 				case DLG_STATE_CONFIRMED:
-					unref_dlg_unsafe(dlg,1,d_entry); /* unref from TM CBs*/
+					unref_dlg_unsafe_reason(dlg,1,d_entry,
+						DLG_REF_TM_CREATE_CB); /* unref from TM CBs*/
 					break;
 				case DLG_STATE_DELETED:
 					/* as the dialog aleady is in DELETE state, it is
@@ -1222,6 +1480,7 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 					be last ref -> dialog will be destroied and we will end up
 					with a dangling pointer :D - bogdan */
 					*unref = 1; /* unref from TM CBs*/
+					*unref_flags = DLG_REF_TM_CREATE_CB;
 					break;
 				default:
 					log_next_state_dlg(event, dlg);
@@ -1242,7 +1501,8 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 				case DLG_STATE_UNCONFIRMED:
 				case DLG_STATE_EARLY:
 					dlg->state = DLG_STATE_DELETED;
-					*unref = 1; /* unref from hash -> t failed */
+					*unref = 1; /* unref from list -> t failed */
+					*unref_flags = DLG_REF_TRANSACTION_CTX;
 					break;
 				default:
 					log_next_state_dlg(event, dlg);
@@ -1255,7 +1515,8 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 						log_next_state_dlg(event, dlg);
 						break;
 					}
-					ref_dlg_unsafe(dlg,1); /* back in hash */
+					ref_dlg_unsafe_reason(dlg,1,
+						DLG_REF_TRANSACTION_CTX); /* back in list */
 				case DLG_STATE_UNCONFIRMED:
 				case DLG_STATE_EARLY:
 					dlg->state = DLG_STATE_CONFIRMED_NA;
@@ -1291,7 +1552,8 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 						break;
 					dlg->flags |= DLG_FLAG_HASBYE;
 					dlg->state = DLG_STATE_DELETED;
-					*unref = 1; /* unref from hash -> dialog ended */
+					*unref = 1; /* unref from list -> dialog ended */
+					*unref_flags = DLG_REF_TRANSACTION_CTX;
 					break;
 				case DLG_STATE_DELETED:
 					break;
@@ -1848,11 +2110,11 @@ mi_response_t *mi_push_dlg_var(const mi_params_t *params,
 		if (dialog_repl_cluster) {
 			shtag_state = get_shtag_state(dlg);
 			if (shtag_state < 0) {
-				unref_dlg(dlg, 1);
+				unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 				goto dlg_error;
 			} else if (shtag_state == SHTAG_STATE_BACKUP) {
 				/* editing dlg vars on backup servers - no no */
-				unref_dlg(dlg, 1);
+				unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 				return init_mi_error(403, MI_SSTR(MI_DIALOG_BACKUP_ERR));
 			}
 		}
@@ -1863,7 +2125,7 @@ mi_response_t *mi_push_dlg_var(const mi_params_t *params,
 			dlg_var_name.len,dlg_var_name.s,
 			dlg_var_value.len,dlg_var_value.s);
 
-			unref_dlg(dlg, 1);
+			unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			goto dlg_error;
 		}
 
@@ -1879,7 +2141,7 @@ mi_response_t *mi_push_dlg_var(const mi_params_t *params,
 		if (dialog_repl_cluster/* && shtag_state != SHTAG_STATE_BACKUP // already active */)
 			replicate_dialog_updated(dlg);
 
-		unref_dlg(dlg, 1);
+		unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 	}
 
 	return init_mi_result_ok();
@@ -1935,7 +2197,7 @@ mi_response_t *mi_set_dlg_profile(const mi_params_t *params,
 			goto dlg_error;
 		} else if (shtag_state == 0) {
 			/* editing dlg profiles on backup servers - no no */
-			unref_dlg(dlg, 1);
+			unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			return init_mi_error(403, MI_SSTR("Editing Backup"));
 		}
 	}
@@ -1972,7 +2234,7 @@ mi_response_t *mi_set_dlg_profile(const mi_params_t *params,
 	if (dialog_repl_cluster && shtag_state != SHTAG_STATE_BACKUP)
 		replicate_dialog_updated(dlg);
 
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 	return init_mi_result_ok();
 
 not_found:
@@ -1980,7 +2242,7 @@ not_found:
 bad_param:
 	return init_mi_error( 400, MI_SSTR("Bad param"));
 dlg_error:
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 	return init_mi_error(403, MI_SSTR("Dialog Error"));
 }
 
@@ -2026,7 +2288,7 @@ mi_response_t *mi_unset_dlg_profile(const mi_params_t *params,
 			goto dlg_error;
 		} else if (shtag_state == 0) {
 			/* editing dlg profiles on backup servers - no no */
-			unref_dlg(dlg, 1);
+			unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			return init_mi_error(403, MI_SSTR("Editing Backup"));
 		}
 	}
@@ -2061,7 +2323,7 @@ mi_response_t *mi_unset_dlg_profile(const mi_params_t *params,
 	if (dialog_repl_cluster && shtag_state != SHTAG_STATE_BACKUP)
 		replicate_dialog_updated(dlg);
 
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 	return init_mi_result_ok();
 
 not_found:
@@ -2069,6 +2331,6 @@ not_found:
 bad_param:
 	return init_mi_error( 400, MI_SSTR("Bad param"));
 dlg_error:
-	unref_dlg(dlg, 1);
+	unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 	return init_mi_error(403, MI_SSTR("Dialog Error"));
 }

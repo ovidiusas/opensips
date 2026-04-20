@@ -213,13 +213,15 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req,
 																int is_active)
 {
 	int event, old_state, new_state, unref, ret;
+	dlg_ref_flags_t unref_flags;
 	struct sip_msg *fake_msg=NULL;
 	context_p old_ctx;
 	context_p *new_ctx;
 
 	event = DLG_EVENT_REQBYE;
 	next_state_dlg(dlg, event, DLG_DIR_DOWNSTREAM, &old_state, &new_state,
-			&unref, dlg->legs_no[DLG_LEG_200OK], is_active);
+			&unref, &unref_flags, dlg->legs_no[DLG_LEG_200OK],
+			is_active);
 
 	if(new_state == DLG_STATE_DELETED && old_state != DLG_STATE_DELETED){
 
@@ -252,6 +254,7 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req,
 		} else {
 			/* successfully removed from timer list */
 			unref++;
+			unref_flags |= DLG_REF_TIMER;
 		}
 
 		if (req==NULL) {
@@ -277,7 +280,7 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req,
 
 		LM_DBG("first final reply\n");
 		/* derefering the dialog */
-		unref_dlg(dlg, unref);
+		unref_dlg_reason(dlg, unref, unref_flags);
 
 		if_update_stat( dlg_enable_stats, active_dlgs, -1);
 	}
@@ -289,7 +292,7 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req,
 		if (should_remove_dlg_db())
 			remove_dialog_from_db(dlg);
 		/* force delete from mem */
-		unref_dlg(dlg, unref);
+		unref_dlg_reason(dlg, unref, unref_flags);
 	}
 }
 
@@ -316,9 +319,20 @@ void bye_reply_cb(struct cell* t, int type, struct tmcb_params* ps)
 }
 
 
-void bye_reply_cb_release(void *param)
+static dlg_ref_flags_t bye_ref_flag(int dst_leg)
 {
-	unref_dlg( (struct dlg_cell *)(param), 1);
+	return dst_leg == DLG_CALLER_LEG ?
+		DLG_REF_BYE_CALLER : DLG_REF_BYE_CALLEE;
+}
+
+static void bye_reply_cb_release_caller(void *param)
+{
+	unref_dlg_reason((struct dlg_cell *)(param), 1, DLG_REF_BYE_CALLER);
+}
+
+static void bye_reply_cb_release_callee(void *param)
+{
+	unref_dlg_reason((struct dlg_cell *)(param), 1, DLG_REF_BYE_CALLEE);
 }
 
 
@@ -370,6 +384,7 @@ static inline int send_leg_bye(struct dlg_cell *cell, int dst_leg, int src_leg,
 	dlg_t* dialog_info;
 	str met = {"BYE", 3};
 	int result;
+	dlg_ref_flags_t ref_flag;
 
 	if ((dialog_info = build_dlg_t(cell, dst_leg, src_leg)) == 0){
 		LM_ERR("failed to create dlg_t\n");
@@ -385,7 +400,8 @@ static inline int send_leg_bye(struct dlg_cell *cell, int dst_leg, int src_leg,
 
 	ctx_lastdstleg_set(dst_leg);
 
-	ref_dlg(cell, 1);
+	ref_flag = bye_ref_flag(dst_leg);
+	ref_dlg_reason(cell, 1, ref_flag);
 
 	result = d_tmb.t_request_within
 		(&met,         /* method*/
@@ -394,7 +410,8 @@ static inline int send_leg_bye(struct dlg_cell *cell, int dst_leg, int src_leg,
 		dialog_info,   /* dialog structure*/
 		bye_reply_cb,  /* callback function*/
 		(void*)cell,   /* callback parameter*/
-		bye_reply_cb_release);         /* release function*/
+		dst_leg == DLG_CALLER_LEG ?
+			bye_reply_cb_release_caller : bye_reply_cb_release_callee);
 
 	/* reset the processing contect */
 	if (current_processing_ctx == NULL)
@@ -414,7 +431,7 @@ static inline int send_leg_bye(struct dlg_cell *cell, int dst_leg, int src_leg,
 	return 0;
 
 err1:
-	unref_dlg(cell, 1);
+	unref_dlg_reason(cell, 1, ref_flag);
 err:
 	return -1;
 }
@@ -447,7 +464,7 @@ static void dlg_end_rpc(int sender, void *param)
 {
 	struct dlg_end_params *params = (struct dlg_end_params *)param;
 	dlg_send_dual_bye(params->dlg, &params->hdrs);
-	unref_dlg(params->dlg, 1);
+	unref_dlg_reason(params->dlg, 1, DLG_REF_IPC);
 	shm_free(params);
 }
 
@@ -502,7 +519,7 @@ int dlg_end_dlg(struct dlg_cell *dlg, str *extra_hdrs, int send_byes)
 		params->hdrs.s = (char *)(params + 1);
 		params->hdrs.len = str_hdr.len;
 		memcpy(params->hdrs.s, str_hdr.s, str_hdr.len);
-		ref_dlg(dlg, 1);
+		ref_dlg_reason(dlg, 1, DLG_REF_IPC);
 		params->dlg = dlg;
 
 		if (ipc_dispatch_rpc(dlg_end_rpc, params) < 0) {
@@ -541,10 +558,10 @@ mi_response_t *mi_terminate_dlg(const mi_params_t *params, str *extra_hdrs)
 		if (dialog_repl_cluster) {
 			shtag_state = get_shtag_state(dlg);
 			if (shtag_state == -1) {
-				unref_dlg(dlg, 1);
+				unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 				return init_mi_error(403, MI_SSTR(MI_DLG_OPERATION_ERR));
 			} else if (shtag_state == 0) {
-				unref_dlg(dlg, 1);
+				unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 				return init_mi_error(403, MI_SSTR(MI_DIALOG_BACKUP_ERR));
 			}
 		}
@@ -553,10 +570,10 @@ mi_response_t *mi_terminate_dlg(const mi_params_t *params, str *extra_hdrs)
 		init_dlg_term_reason(dlg,"MI Termination",sizeof("MI Termination")-1);
 
 		if (dlg_end_dlg(dlg, extra_hdrs, 1)) {
-			unref_dlg(dlg, 1);
+			unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			return init_mi_error(500, MI_SSTR(MI_DLG_OPERATION_ERR));
 		} else {
-			unref_dlg(dlg, 1);
+			unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 			return init_mi_result_ok();
 		}
 	}
@@ -676,7 +693,8 @@ struct dlg_sequential_param {
 void dlg_sequential_free(void *params)
 {
 	struct dlg_sequential_param *p = (struct dlg_sequential_param *)params;
-	unref_dlg_destroy_safe(p->dlg, 1);
+	unref_dlg_destroy_safe_reason(p->dlg, 1,
+		p->ref > 1 ? DLG_REF_SEQ_MI : DLG_REF_SCRIPT_CTX);
 	p->ref--;
 	if (p->ref == 0)
 		shm_free(p);
@@ -783,7 +801,7 @@ static void dlg_sequential_reply(struct cell* t, int type, struct tmcb_params* p
 	/* swap the leg */
 	p->leg = other_leg(dlg, p->leg);
 
-	ref_dlg(dlg, 1);
+	ref_dlg_reason(dlg, 1, DLG_REF_SEQ_MI);
 	if (send_leg_msg(dlg, &p->method, p->leg, other_leg(dlg, p->leg),
 			&extra_headers, &body,
 			dlg_sequential_reply, p, dlg_sequential_free,
@@ -1023,7 +1041,7 @@ static void dlg_indialog_reply_release(void *param)
 	struct dlg_indialog_req_param *p = (struct dlg_indialog_req_param *)param;
 	if (p->release)
 		p->release(p->param);
-	unref_dlg(p->dlg, 1);
+	unref_dlg_reason(p->dlg, 1, DLG_REF_INDIALOG_API);
 	shm_free(p);
 }
 
@@ -1078,13 +1096,13 @@ int send_indialog_request(struct dlg_cell *dlg, str *method, int dstleg, str *bo
 	p->release = release;
 	p->leg = dstleg;
 
-	ref_dlg(dlg, 1);
+	ref_dlg_reason(dlg, 1, DLG_REF_INDIALOG_API);
 	if (send_leg_msg(dlg, method, other_leg(dlg, dstleg), dstleg, &extra_headers,
 			body, dlg_indialog_reply, p, dlg_indialog_reply_release,
 			dlg_has_reinvite_pinging(dlg) ? &dlg->legs[dstleg].reinvite_confirmed :
 			&dlg->legs[dstleg].reply_received) < 0) {
 		pkg_free(extra_headers.s);
-		unref_dlg(dlg, 1);
+		unref_dlg_reason(dlg, 1, DLG_REF_INDIALOG_API);
 		shm_free(p);
 		return -2;
 	}

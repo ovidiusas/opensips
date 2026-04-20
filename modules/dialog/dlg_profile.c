@@ -1573,7 +1573,7 @@ static mi_response_t *mi_profile_terminate(const mi_params_t *params, str *value
 					delete_entry->next = deleted;
 					deleted = delete_entry;
 
-					ref_dlg_unsafe(cur_dlg, 1);
+					ref_dlg_unsafe_reason(cur_dlg, 1, DLG_REF_PROFILE);
 
 					break;
 				}
@@ -1610,7 +1610,7 @@ static mi_response_t *mi_profile_terminate(const mi_params_t *params, str *value
 			}
 
 next_dlg:
-			unref_dlg(delete_entry->dlg, 1);
+			unref_dlg_reason(delete_entry->dlg, 1, DLG_REF_PROFILE);
 			deleted = delete_entry;
 			delete_entry = delete_entry->next;
 			pkg_free(deleted);
