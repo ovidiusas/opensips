@@ -137,30 +137,42 @@ typedef unsigned long long dlg_ref_flags_t;
 #define DLG_REF_HASH                  (1ULL << 1)
 #define DLG_REF_TM_CREATE_CB          (1ULL << 2)
 #define DLG_REF_SCRIPT_CTX            (1ULL << 3)
-#define DLG_REF_TIMER                 (1ULL << 4)
-#define DLG_REF_PING_TIMER            (1ULL << 5)
-#define DLG_REF_REINVITE_PING_TIMER   (1ULL << 6)
-#define DLG_REF_TRANSACTION_CTX       (1ULL << 7)
-#define DLG_REF_CSEQ_MAP              (1ULL << 8)
-#define DLG_REF_BYE_CALLER            (1ULL << 9)
-#define DLG_REF_BYE_CALLEE            (1ULL << 10)
-#define DLG_REF_IPC                   (1ULL << 11)
-#define DLG_REF_SEQ_MI                (1ULL << 12)
-#define DLG_REF_INDIALOG_API          (1ULL << 13)
-#define DLG_REF_DB_LOAD               (1ULL << 14)
-#define DLG_REF_DB_TIMER              (1ULL << 15)
-#define DLG_REF_DB_DELETE             (1ULL << 16)
-#define DLG_REF_REPLICATION           (1ULL << 17)
-#define DLG_REF_PROFILE               (1ULL << 18)
-#define DLG_REF_EXTERNAL_API          (1ULL << 19)
-#define DLG_REF_TOPOH_TMCB            (1ULL << 20)
-#define DLG_REF_OPTIONS_PING_CALLER_CB (1ULL << 21)
-#define DLG_REF_OPTIONS_PING_CALLEE_CB (1ULL << 22)
-#define DLG_REF_REINVITE_PING_CALLER_CB (1ULL << 23)
-#define DLG_REF_REINVITE_PING_CALLEE_CB (1ULL << 24)
-#define DLG_REF_TM_SDP_CB             (1ULL << 25)
-#define DLG_REF_TM_CONTACT_CB         (1ULL << 26)
-#define DLG_REF_TM_RESPONSE_WITHIN_CB (1ULL << 27)
+#define DLG_REF_SCRIPT_ROUTE_CTX      (1ULL << 4)
+#define DLG_REF_TIMER                 (1ULL << 5)
+#define DLG_REF_PING_TIMER            (1ULL << 6)
+#define DLG_REF_REINVITE_PING_TIMER   (1ULL << 7)
+#define DLG_REF_TRANSACTION_CTX       (1ULL << 8)
+#define DLG_REF_CSEQ_MAP              (1ULL << 9)
+#define DLG_REF_BYE_CALLER            (1ULL << 10)
+#define DLG_REF_BYE_CALLEE            (1ULL << 11)
+#define DLG_REF_IPC                   (1ULL << 12)
+#define DLG_REF_SEQ_MI                (1ULL << 13)
+#define DLG_REF_INDIALOG_API          (1ULL << 14)
+#define DLG_REF_DB_LOAD               (1ULL << 15)
+#define DLG_REF_DB_TIMER              (1ULL << 16)
+#define DLG_REF_DB_DELETE             (1ULL << 17)
+#define DLG_REF_REPLICATION           (1ULL << 18)
+#define DLG_REF_PROFILE               (1ULL << 19)
+#define DLG_REF_EXTERNAL_API          (1ULL << 20)
+#define DLG_REF_TOPOH_TMCB_PRACK_UP   (1ULL << 21)
+#define DLG_REF_TOPOH_TMCB_PRACK_DOWN (1ULL << 22)
+#define DLG_REF_TOPOH_TMCB_ACK_UP     (1ULL << 23)
+#define DLG_REF_TOPOH_TMCB_ACK_DOWN   (1ULL << 24)
+#define DLG_REF_TOPOH_TMCB_BYE_UP     (1ULL << 25)
+#define DLG_REF_TOPOH_TMCB_BYE_DOWN   (1ULL << 26)
+#define DLG_REF_TOPOH_TMCB_INVITE_UP  (1ULL << 27)
+#define DLG_REF_TOPOH_TMCB_INVITE_DOWN (1ULL << 28)
+#define DLG_REF_TOPOH_TMCB_UPDATE_UP  (1ULL << 29)
+#define DLG_REF_TOPOH_TMCB_UPDATE_DOWN (1ULL << 30)
+#define DLG_REF_TOPOH_TMCB_REQ_UP     (1ULL << 31)
+#define DLG_REF_TOPOH_TMCB_REQ_DOWN   (1ULL << 32)
+#define DLG_REF_OPTIONS_PING_CALLER_CB (1ULL << 33)
+#define DLG_REF_OPTIONS_PING_CALLEE_CB (1ULL << 34)
+#define DLG_REF_REINVITE_PING_CALLER_CB (1ULL << 35)
+#define DLG_REF_REINVITE_PING_CALLEE_CB (1ULL << 36)
+#define DLG_REF_TM_SDP_CB             (1ULL << 37)
+#define DLG_REF_TM_CONTACT_CB         (1ULL << 38)
+#define DLG_REF_TM_RESPONSE_WITHIN_CB (1ULL << 39)
 
 struct dlg_cell
 {
@@ -240,6 +252,7 @@ extern stat_var *early_dlgs;
 extern struct struct_hist_list *dlg_hist;
 extern struct dlg_table *d_table;
 extern int ctx_dlg_idx;
+extern int ctx_dlg_ref_idx;
 extern int dlg_enable_stats;
 
 #define callee_idx(_dlg) \
@@ -257,8 +270,24 @@ extern int dlg_enable_stats;
 #define ctx_dialog_get() \
 	((struct dlg_cell*)context_get_ptr(CONTEXT_GLOBAL,current_processing_ctx,ctx_dlg_idx) )
 
+#define ctx_dialog_ref_get() \
+	((dlg_ref_flags_t)context_get_int(CONTEXT_GLOBAL,current_processing_ctx,ctx_dlg_ref_idx))
+
+#define ctx_dialog_ref_set(_ref_flags) \
+	context_put_int(CONTEXT_GLOBAL,current_processing_ctx, ctx_dlg_ref_idx, (int)(_ref_flags))
+
 #define ctx_dialog_set(_dlg) \
-	context_put_ptr(CONTEXT_GLOBAL,current_processing_ctx, ctx_dlg_idx, _dlg)
+	do { \
+		context_put_ptr(CONTEXT_GLOBAL,current_processing_ctx, ctx_dlg_idx, _dlg); \
+		if (!(_dlg)) \
+			ctx_dialog_ref_set(0); \
+	} while (0)
+
+#define ctx_dialog_set_reason(_dlg, _ref_flags) \
+	do { \
+		ctx_dialog_set(_dlg); \
+		ctx_dialog_ref_set(_ref_flags); \
+	} while (0)
 
 struct dlg_cell *get_current_dialog();
 

@@ -712,7 +712,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 			LM_INFO("reference and attached to script dlg=%p\n", dlg);
 			/* reference and attached to script */
 			ref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
-			ctx_dialog_set(t->dialog_ctx);
+			ctx_dialog_set_reason(t->dialog_ctx, DLG_REF_SCRIPT_CTX);
 		}
 		return;
 	}
@@ -1767,7 +1767,7 @@ int dlg_create_dialog(struct cell* t, struct sip_msg *req,unsigned int flags)
 	}
 
 	/* set current dialog */
-	ctx_dialog_set(dlg);
+	ctx_dialog_set_reason(dlg, DLG_REF_SCRIPT_CTX);
 	ctx_lastdstleg_set(DLG_FIRST_CALLEE_LEG);
 
 	LM_DBG("extra ref for the callback and current dlg hook\n");
@@ -2098,7 +2098,7 @@ void dlg_onroute(struct sip_msg* req, str *route_params, void *param)
 		&unref_flags, dst_leg, 1);
 
 	/* set current dialog - it will keep a ref! */
-	ctx_dialog_set(dlg);
+	ctx_dialog_set_reason(dlg, DLG_REF_SCRIPT_CTX);
 	ctx_lastdstleg_set(dst_leg);
 	log_bogus_dst_leg(dlg);
 	d_entry = &(d_table->entries[dlg->h_entry]);

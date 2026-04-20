@@ -808,6 +808,7 @@ static int mod_init(void)
 
 	/* allocate a slot in the processing context */
 	ctx_dlg_idx = context_register_ptr(CONTEXT_GLOBAL, ctx_dlg_idx_destroy);
+	ctx_dlg_ref_idx = context_register_int(CONTEXT_GLOBAL, NULL);
 	ctx_timeout_idx = context_register_int(CONTEXT_GLOBAL, NULL);
 	ctx_lastdstleg_idx = context_register_int(CONTEXT_GLOBAL, NULL);
 
@@ -2372,6 +2373,7 @@ static int w_get_dlg_jsons_by_profile(struct sip_msg *msg, str *attr, str *attr_
 #define DLG_CTX_LOAD_BY_DID     1
 
 static struct dlg_cell *load_ctx_backup = NULL;
+static dlg_ref_flags_t load_ctx_backup_ref = 0;
 static int dlg_ctx_loaded = 0;
 
 static int fixup_lmode(void **param)
@@ -2446,9 +2448,10 @@ static int load_dlg_ctx(struct sip_msg *msg, str *callid, void *lmode)
 
 	/* this will 'inherit' the ref, no need to add a new one */
 	load_ctx_backup = ctx_dialog_get();
+	load_ctx_backup_ref = ctx_dialog_ref_get();
 
 	/* the dlg is already ref'ed by the lookup function */
-	ctx_dialog_set(dlg);
+	ctx_dialog_set_reason(dlg, DLG_REF_SCRIPT_CTX);
 	dlg_ctx_loaded = 1;
 
 	return 1;
@@ -2465,8 +2468,9 @@ static int unload_dlg_ctx(struct sip_msg *msg)
 	if ( (dlg=ctx_dialog_get())!=NULL )
 		unref_dlg_reason(dlg, 1, DLG_REF_SCRIPT_CTX);
 
-	ctx_dialog_set(load_ctx_backup);
+	ctx_dialog_set_reason(load_ctx_backup, load_ctx_backup_ref);
 	load_ctx_backup = NULL;
+	load_ctx_backup_ref = 0;
 	dlg_ctx_loaded = 0;
 
 	return 1;

@@ -60,6 +60,8 @@ static void topo_dlg_initial_reply (struct dlg_cell* dlg, int type,
 		struct dlg_cb_params * params);
 static void th_down_onreply(struct cell* t, int type,struct tmcb_params *param);
 static void th_up_onreply(struct cell* t, int type, struct tmcb_params *param);
+static dlg_ref_flags_t topo_tmc_ref_flag(struct sip_msg *req, int dir);
+static release_tmcb_param *topo_tmc_unref_func(dlg_ref_flags_t ref_flag);
 static void th_no_dlg_onreply(struct cell* t, int type, struct tmcb_params *param);
 static void th_no_dlg_user_onreply(struct cell* t, int type, struct tmcb_params *param);
 static int topo_no_dlg_encode_contact(struct sip_msg *req,int flags,str *routes,str *ct_user);
@@ -1154,10 +1156,132 @@ error:
 		shm_free(pparams);
 }
 
-static void topo_unref_dialog(void *dialog)
+static void topo_unref_dialog_prack_up(void *dialog)
 {
 	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
-		DLG_REF_TOPOH_TMCB);
+		DLG_REF_TOPOH_TMCB_PRACK_UP);
+}
+
+static void topo_unref_dialog_prack_down(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_PRACK_DOWN);
+}
+
+static void topo_unref_dialog_ack_up(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_ACK_UP);
+}
+
+static void topo_unref_dialog_ack_down(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_ACK_DOWN);
+}
+
+static void topo_unref_dialog_bye_up(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_BYE_UP);
+}
+
+static void topo_unref_dialog_bye_down(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_BYE_DOWN);
+}
+
+static void topo_unref_dialog_invite_up(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_INVITE_UP);
+}
+
+static void topo_unref_dialog_invite_down(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_INVITE_DOWN);
+}
+
+static void topo_unref_dialog_update_up(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_UPDATE_UP);
+}
+
+static void topo_unref_dialog_update_down(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_UPDATE_DOWN);
+}
+
+static void topo_unref_dialog_req_up(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_REQ_UP);
+}
+
+static void topo_unref_dialog_req_down(void *dialog)
+{
+	dlg_api.dlg_unref_reason((struct dlg_cell*)dialog, 1,
+		DLG_REF_TOPOH_TMCB_REQ_DOWN);
+}
+
+static dlg_ref_flags_t topo_tmc_ref_flag(struct sip_msg *req, int dir)
+{
+	int upstream = (dir == DLG_DIR_UPSTREAM);
+
+	switch (req->first_line.u.request.method_value) {
+	case METHOD_PRACK:
+		return upstream ? DLG_REF_TOPOH_TMCB_PRACK_UP :
+			DLG_REF_TOPOH_TMCB_PRACK_DOWN;
+	case METHOD_ACK:
+		return upstream ? DLG_REF_TOPOH_TMCB_ACK_UP :
+			DLG_REF_TOPOH_TMCB_ACK_DOWN;
+	case METHOD_BYE:
+		return upstream ? DLG_REF_TOPOH_TMCB_BYE_UP :
+			DLG_REF_TOPOH_TMCB_BYE_DOWN;
+	case METHOD_INVITE:
+		return upstream ? DLG_REF_TOPOH_TMCB_INVITE_UP :
+			DLG_REF_TOPOH_TMCB_INVITE_DOWN;
+	case METHOD_UPDATE:
+		return upstream ? DLG_REF_TOPOH_TMCB_UPDATE_UP :
+			DLG_REF_TOPOH_TMCB_UPDATE_DOWN;
+	default:
+		return upstream ? DLG_REF_TOPOH_TMCB_REQ_UP :
+			DLG_REF_TOPOH_TMCB_REQ_DOWN;
+	}
+}
+
+static release_tmcb_param *topo_tmc_unref_func(dlg_ref_flags_t ref_flag)
+{
+	switch (ref_flag) {
+	case DLG_REF_TOPOH_TMCB_PRACK_UP:
+		return topo_unref_dialog_prack_up;
+	case DLG_REF_TOPOH_TMCB_PRACK_DOWN:
+		return topo_unref_dialog_prack_down;
+	case DLG_REF_TOPOH_TMCB_ACK_UP:
+		return topo_unref_dialog_ack_up;
+	case DLG_REF_TOPOH_TMCB_ACK_DOWN:
+		return topo_unref_dialog_ack_down;
+	case DLG_REF_TOPOH_TMCB_BYE_UP:
+		return topo_unref_dialog_bye_up;
+	case DLG_REF_TOPOH_TMCB_BYE_DOWN:
+		return topo_unref_dialog_bye_down;
+	case DLG_REF_TOPOH_TMCB_INVITE_UP:
+		return topo_unref_dialog_invite_up;
+	case DLG_REF_TOPOH_TMCB_INVITE_DOWN:
+		return topo_unref_dialog_invite_down;
+	case DLG_REF_TOPOH_TMCB_UPDATE_UP:
+		return topo_unref_dialog_update_up;
+	case DLG_REF_TOPOH_TMCB_UPDATE_DOWN:
+		return topo_unref_dialog_update_down;
+	case DLG_REF_TOPOH_TMCB_REQ_UP:
+		return topo_unref_dialog_req_up;
+	default:
+		return topo_unref_dialog_req_down;
+	}
 }
 
 static void topo_dlg_initial_reply (struct dlg_cell* dlg, int type,
@@ -1185,6 +1309,7 @@ static void topo_dlg_onroute (struct dlg_cell* dlg, int type,
 	int dir = params->direction;
 	struct sip_msg *req = params->msg;
 	int adv_leg = -1, leg;
+	dlg_ref_flags_t ref_flag;
 	str *ct_user = (str *)(*params->param);
 
 	if (!req) {
@@ -1244,12 +1369,13 @@ static void topo_dlg_onroute (struct dlg_cell* dlg, int type,
 	}
 
 	/* register tm callback for response in  */
-	dlg_api.dlg_ref_reason(dlg, 1, DLG_REF_TOPOH_TMCB);
+	ref_flag = topo_tmc_ref_flag(req, dir);
+	dlg_api.dlg_ref_reason(dlg, 1, ref_flag);
 	if (tm_api.register_tmcb( req, 0, TMCB_RESPONSE_FWDED,
 	(dir==DLG_DIR_UPSTREAM)?th_down_onreply:th_up_onreply,
-	(void*)dlg, topo_unref_dialog)<0 ) {
+	(void*)dlg, topo_tmc_unref_func(ref_flag))<0 ) {
 		LM_ERR("failed to register TMCB\n");
-		dlg_api.dlg_unref_reason(dlg, 1, DLG_REF_TOPOH_TMCB);
+		dlg_api.dlg_unref_reason(dlg, 1, ref_flag);
 		return;
 	}
 }

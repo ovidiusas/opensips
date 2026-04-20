@@ -50,6 +50,7 @@ struct struct_hist_list *dlg_hist;
 
 struct dlg_table *d_table = NULL;
 int ctx_dlg_idx = 0;
+int ctx_dlg_ref_idx = 0;
 
 static inline void raise_state_changed_event(struct dlg_cell *dlg,
 						unsigned int ostate, unsigned int nstate);
@@ -79,6 +80,7 @@ static const struct dlg_ref_flag_name dlg_ref_flag_names[] = {
 	{ DLG_REF_HASH,                "hash" },
 	{ DLG_REF_TM_CREATE_CB,        "tm-create-callback" },
 	{ DLG_REF_SCRIPT_CTX,          "script-context" },
+	{ DLG_REF_SCRIPT_ROUTE_CTX,    "script-route-context" },
 	{ DLG_REF_TIMER,               "timer" },
 	{ DLG_REF_PING_TIMER,          "options-ping-timer" },
 	{ DLG_REF_REINVITE_PING_TIMER, "reinvite-ping-timer" },
@@ -95,7 +97,18 @@ static const struct dlg_ref_flag_name dlg_ref_flag_names[] = {
 	{ DLG_REF_REPLICATION,         "replication" },
 	{ DLG_REF_PROFILE,             "profile" },
 	{ DLG_REF_EXTERNAL_API,        "external-api" },
-	{ DLG_REF_TOPOH_TMCB,          "topology-hiding-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_PRACK_UP, "topology-hiding-prack-up-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_PRACK_DOWN, "topology-hiding-prack-down-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_ACK_UP,   "topology-hiding-ack-up-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_ACK_DOWN, "topology-hiding-ack-down-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_BYE_UP,   "topology-hiding-bye-up-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_BYE_DOWN, "topology-hiding-bye-down-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_INVITE_UP, "topology-hiding-invite-up-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_INVITE_DOWN, "topology-hiding-invite-down-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_UPDATE_UP, "topology-hiding-update-up-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_UPDATE_DOWN, "topology-hiding-update-down-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_REQ_UP,   "topology-hiding-request-up-tm-callback" },
+	{ DLG_REF_TOPOH_TMCB_REQ_DOWN, "topology-hiding-request-down-tm-callback" },
 	{ DLG_REF_OPTIONS_PING_CALLER_CB, "options-ping-caller-callback" },
 	{ DLG_REF_OPTIONS_PING_CALLEE_CB, "options-ping-callee-callback" },
 	{ DLG_REF_REINVITE_PING_CALLER_CB, "reinvite-ping-caller-callback" },
@@ -302,7 +315,7 @@ struct dlg_cell *get_current_dialog(void)
 		   the dialog too */
 		ref_dlg_reason((struct dlg_cell*)trans->dialog_ctx, 1,
 			DLG_REF_SCRIPT_CTX);
-		ctx_dialog_set(trans->dialog_ctx);
+		ctx_dialog_set_reason(trans->dialog_ctx, DLG_REF_SCRIPT_CTX);
 	}
 	return (struct dlg_cell*)trans->dialog_ctx;
 }
@@ -1302,7 +1315,9 @@ void unref_dlg_ctx(struct dlg_cell *dlg)
 	d_entry = &(d_table->entries[dlg->h_entry]);
 
 	dlg_lock( d_table, d_entry);
-	ref_flags = DLG_REF_SCRIPT_CTX;
+	ref_flags = current_processing_ctx ? ctx_dialog_ref_get() : 0;
+	if (!ref_flags)
+		ref_flags = DLG_REF_SCRIPT_CTX;
 	DBG_UNREF(dlg, 1);
 	unref_dlg_unsafe_reason(dlg, 1, d_entry, ref_flags);
 	dlg_unlock( d_table, d_entry);
