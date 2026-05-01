@@ -63,6 +63,7 @@
 #ifndef _lock_ops_h
 #define _lock_ops_h
 
+#include "dprint.h"
 
 #ifdef FAST_LOCK
 
