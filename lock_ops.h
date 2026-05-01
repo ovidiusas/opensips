@@ -180,6 +180,8 @@ lock_release(gen_lock_t *lock)
 # endif /* USE_UMUTEX_DECL */
 #elif defined USE_POSIX_SEM
 #include <semaphore.h>
+#include <errno.h>
+#include <string.h>
 
 typedef sem_t gen_lock_t;
 
@@ -192,8 +194,22 @@ inline static gen_lock_t* lock_init(gen_lock_t* lock)
 	return lock;
 }
 
-#define lock_get(lock) sem_wait(lock)
-#define lock_release(lock) sem_post(lock)
+inline static void lock_get(gen_lock_t* lock)
+{
+	while (sem_wait(lock) == -1) {
+		if (errno == EINTR)
+			continue;
+
+		LM_CRIT("%s (%d)\n", strerror(errno), errno);
+		break;
+	}
+}
+
+inline static void lock_release(gen_lock_t* lock)
+{
+	if (sem_post(lock) == -1)
+		LM_CRIT("%s (%d)\n", strerror(errno), errno);
+}
 
 #elif defined USE_SYSV_SEM
 #include <sys/ipc.h>
